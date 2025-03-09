@@ -6,6 +6,8 @@
 *.dylib
 bin/*
 Dockerfile.cross
+curl_command
+github_token
 
 # Test binary, built with `go test -c`
 *.test
