@@ -8,7 +8,7 @@ bin/*
 Dockerfile.cross
 curl_command
 github_token
-
+vendor/
 # Test binary, built with `go test -c`
 *.test
 
