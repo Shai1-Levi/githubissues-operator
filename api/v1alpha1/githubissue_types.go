@@ -28,14 +28,33 @@ type GithubIssueSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of GithubIssue. Edit githubissue_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// Must fields of GithubIssue. Edit githubissue_types.go to remove/update to add more fileds.
+	Repo        string `json:"repo,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // GithubIssueStatus defines the observed state of GithubIssue
 type GithubIssueStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+	// Represents the observations of a GithubIssue's current state.
+	// GithubIssue.status.conditions.type are: "Available", "Progressing", and "Degraded"
+	// GithubIssue.status.conditions.status are one of True, False, Unknown.
+	// GithubIssue.status.conditions.reason the value should be a CamelCase string and producers of specific
+	// condition types may define expected values and meanings for this field, and whether the values
+	// are considered a guaranteed API.
+	// GithubIssue.status.conditions.Message is a human readable message indicating details about the transition.
+	// For further information see: https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+
+	// Conditions store the status conditions of the GithubIssue instances
+
 	// Important: Run "make" to regenerate code after modifying this file
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 }
 
 // +kubebuilder:object:root=true
