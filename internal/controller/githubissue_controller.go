@@ -55,46 +55,8 @@ type GithubIssueReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.0/pkg/reconcile
 func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-	log.Info("Reconciling GithubIssue SHAI", "name", req.NamespacedName)
+	log.Info("Reconciling GithubIssue")
 
-	// // TODO(user): your logic here
-
-	// // Read the token from the file
-	// tokenBytes, err := os.ReadFile("github_token")
-	// if err != nil {
-	// 	fmt.Println("Error reading token:", err)
-	// 	return ctrl.Result{}, nil
-	// }
-
-	// // Trim spaces and newlines from the token
-	// tokenStr := strings.TrimSpace(string(tokenBytes))
-
-	// url := "https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues"
-
-	// // Create a new HTTP request
-	// req2, err := http.NewRequest("GET", url, nil)
-
-	// // Set headers
-	// req2.Header.Add("Authorization", "token "+tokenStr)
-	// req2.Header.Add("Accept", "application/vnd.github.v3+json")
-
-	// log.Info("log SHAI", "name", req2)
-
-	// //send request and get the response
-	// client := &http.Client{}
-	// resp, err := client.Do(req2)
-	// if err != nil {
-	// 	fmt.Println("Error:", err)
-	// 	return ctrl.Result{}, nil
-	// }
-	// defer resp.Body.Close()
-
-	// // Read response body
-	// body, err := io.ReadAll(resp.Body)
-	// if err != nil {
-	// 	fmt.Println("Error reading response:", err)
-	// 	return ctrl.Result{}, nil
-	// }
 
 	// Fetch issues from GitHub
 	body, err := r.fetchGitHubIssues()
@@ -102,9 +64,6 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Info("Failed to fetch GitHub issues")
 		return ctrl.Result{}, nil
 	}
-
-	log.Info("Answerrrr SHAI")
-	// log.Info(string(body))
 
 	// Define a generic map
 	var result []map[string]interface{}
@@ -127,7 +86,6 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				}
 			} else {
 				// github issue is not exist, create new issue
-				r.createGithubIssue("sdfadsf")
 				continue
 			}
 		}
@@ -135,23 +93,6 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	return ctrl.Result{}, nil
 }
-
-// func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-// 	log := log.FromContext(ctx)
-// 	log.Info("Reconciling GithubIssue SHAI", "name", req.NamespacedName)
-
-// 	// Fetch issues from GitHub
-// 	body, err := r.fetchGitHubIssues()
-// 	if err != nil {
-// 		log.Info(err, "Failed to fetch GitHub issues")
-// 		return ctrl.Result{}, nil
-// 	}
-
-// 	// Process the issues
-// 	r.processGitHubIssues(body)
-
-// 	return ctrl.Result{}, nil
-// }
 
 // fetchGitHubIssues reads the token, sends the request, and returns the response body
 func (r *GithubIssueReconciler) fetchGitHubIssues() ([]byte, error) {
@@ -191,35 +132,6 @@ func (r *GithubIssueReconciler) fetchGitHubIssues() ([]byte, error) {
 
 	return body, nil
 }
-
-// // processGitHubIssues parses the JSON response and checks for a specific issue
-// func (r *GithubIssueReconciler) processGitHubIssues(body []byte) {
-// 	var issues []map[string]interface{}
-
-// 	// Parse the JSON response
-// 	err := json.Unmarshal(body, &issues)
-// 	if err != nil {
-// 		log.Info(err, "Failed to parse GitHub issues JSON")
-// 		return
-// 	}
-
-// 	// Iterate over the issues
-// 	for i, issue := range issues {
-// 		log.Info(fmt.Sprintf("\nIssue %d:", i+1))
-
-// 		for key, value := range issue {
-// 			// Check if the GitHub issue exists
-// 			if valueStr, ok := value.(string); ok {
-// 				if strings.TrimSpace(valueStr) == "Generate scaffold files by operator-sdk" {
-// 					log.Info(fmt.Sprintf("  %s: %v", key, valueStr))
-// 				}
-// 			} else {
-// 				// GitHub issue does not exist, create a new issue (TODO: Implement this)
-// 				continue
-// 			}
-// 		}
-// 	}
-// }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *GithubIssueReconciler) SetupWithManager(mgr ctrl.Manager) error {
