@@ -1,0 +1,48 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+    capabilities: Basic Install
+  name: githubissues-operator.v0.0.0
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: GithubIssue is the Schema for the githubissues API
+      displayName: Github Issue
+      kind: GithubIssue
+      name: githubissues.training.redhat.com
+      version: v1alpha1
+  description: githubissue-operaor-create-github-issue
+  displayName: githubissue-operatr
+  icon:
+  - base64data: ""
+    mediatype: ""
+  install:
+    spec:
+      deployments: null
+    strategy: ""
+  installModes:
+  - supported: false
+    type: OwnNamespace
+  - supported: false
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: true
+    type: AllNamespaces
+  keywords:
+  - app
+  - operator
+  links:
+  - name: Githubissues Operator
+    url: https://githubissues-operator.domain
+  maintainers:
+  - email: shai@walla.com
+    name: shai
+  maturity: alpha
+  provider:
+    name: shai
+  version: 0.0.0
