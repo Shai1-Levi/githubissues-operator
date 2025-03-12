@@ -25,14 +25,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	trainingv1alpha1 "Shai1-Levi/githubissues-operator.git/api/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/tools/clientcmd"
 	"net/http"
 	"os"
 	"strings"
+
+	// for listing CRD, go provides client which is different from
+	// "kubernetes.clientset"
+	// This clientset will be used to list down the existing CRD
+	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 )
 
 // GithubIssueReconciler reconciles a GithubIssue object
@@ -58,6 +68,65 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log := log.FromContext(ctx)
 	log.Info("Reconciling GithubIssue")
 
+	// 1. Create custom crdClientSet
+	// here restConfig is your .kube/config file
+	// Path to your kubeconfig file
+	kubeconfig := "/home/slevi/.kube/config"
+
+	// Load the kubeconfig file
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		fmt.Println("Error loading kubeconfig:", err)
+		os.Exit(1)
+	}
+
+	crdClientSet, err := clientset.NewForConfig(config)
+	if err != nil {
+		return ctrl.Result{}, nil
+	}
+
+	// 2. List down all the existing crd in the cluster
+	crdList, err := crdClientSet.ApiextensionsV1().CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return ctrl.Result{}, nil
+	}
+
+	fmt.Print("Found")
+	fmt.Print(len(crdList.Items))
+
+	// Create dynamic client
+	dynClient, err := dynamic.NewForConfig(config)
+	if err != nil {
+		fmt.Println("Error creating dynamic client:", err)
+		os.Exit(1)
+	}
+
+	// Define the GroupVersionResource (GVR) for your CRD
+	gvr := schema.GroupVersionResource{
+		Group:    "training.redhat.com",
+		Version:  "v1alpha1",
+		Resource: "githubissues", // Plural form of your CRD
+	}
+
+	// Fetch a specific CR instance (replace "githubissue-sample" with your CR name)
+	crName := "example-issue"
+	cr, err := dynClient.Resource(gvr).Namespace("default").Get(context.TODO(), crName, metav1.GetOptions{})
+	if err != nil {
+		fmt.Println("Error fetching Custom Resource:", err)
+		os.Exit(1)
+	}
+
+	// Extract `spec` field
+	title, found, err := unstructured.NestedString(cr.Object, "spec", "title")
+	description, found, err := unstructured.NestedString(cr.Object, "spec", "description")
+	if err != nil || !found {
+		fmt.Println("Error retrieving spec:", err)
+		os.Exit(1)
+	}
+
+	// Print the spec content
+	fmt.Println("Spec of", crName, ":", title)
+
 	// Fetch issues from GitHub
 	body, err := r.fetchGitHubIssues()
 	if err != nil {
@@ -80,30 +149,23 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	for i = 0; i < len(result); i++ {
 		item := result[i]
 		fmt.Printf("\nIssue %d:\n", i)
-		for key, value := range item {
+		titleStr := fmt.Sprintf(item["title"].(string))
 
-			// check github issue is exist
-			if ValueStr, ok := value.(string); ok {
-				if strings.TrimRight(string(ValueStr), "\n") == "Buy cheese and bread for breakfast." {
-					fmt.Printf("  %s: %v\n", key, ValueStr)
-				}
-			} else {
-				// github issue is not exist, create new issue
-				continue
-			}
+		if strings.TrimRight(string(titleStr), "\n") == title {
+			break
 		}
 	}
 
 	// validate if the GitHub issue if the requiered issue is not exists when GitHub issues are empty or not
 	if len(result) == 0 || i == len(result) {
-		r.createGithubIssue()
+		r.createGithubIssue(title, description)
 		log.Info("Reconciling createGithubIssue")
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *GithubIssueReconciler) createGithubIssue() (ctrl.Result, error) {
+func (r *GithubIssueReconciler) createGithubIssue(title string, description string) (ctrl.Result, error) {
 	// Read the token from file
 
 	tokenBytes, err := os.ReadFile("github_token")
@@ -115,7 +177,8 @@ func (r *GithubIssueReconciler) createGithubIssue() (ctrl.Result, error) {
 	tokenStr := strings.TrimSpace(string(tokenBytes))
 
 	// JSON payload for the issue
-	jsonStr := `{"title":"Buy cheese and bread for breakfast2.", "body":"test2"}`
+	jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\"}", title, description)
+	fmt.Println(jsonStr)
 	url := "https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues"
 
 	// Create a new HTTP request
