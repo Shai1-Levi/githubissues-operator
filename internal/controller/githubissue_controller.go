@@ -150,8 +150,8 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		item := result[i]
 		fmt.Printf("\nIssue %d:\n", i)
 		titleStr := fmt.Sprintf(item["title"].(string))
-
-		if strings.TrimRight(string(titleStr), "\n") == title {
+		isOpen := fmt.Sprintf(item["state"].(string))
+		if (strings.TrimRight(string(titleStr), "\n") == title) && isOpen == "open" {
 			break
 		}
 	}
@@ -178,7 +178,6 @@ func (r *GithubIssueReconciler) createGithubIssue(title string, description stri
 
 	// JSON payload for the issue
 	jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\"}", title, description)
-	fmt.Println(jsonStr)
 	url := "https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues"
 
 	// Create a new HTTP request
@@ -204,14 +203,6 @@ func (r *GithubIssueReconciler) createGithubIssue(title string, description stri
 		return ctrl.Result{}, fmt.Errorf("error sending request: %w", err)
 	}
 	defer resp.Body.Close()
-
-	// Read and log the response
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("error reading response: %w", err)
-	}
-
-	fmt.Println("GitHub API Response:", string(body))
 
 	// Check response status
 	if resp.StatusCode != http.StatusCreated {
