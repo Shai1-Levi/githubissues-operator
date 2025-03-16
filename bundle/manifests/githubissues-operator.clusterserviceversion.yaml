@@ -18,7 +18,7 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2025-03-10T19:28:48Z"
+    createdAt: "2025-03-12T15:51:53Z"
     operators.operatorframework.io/builder: operator-sdk-v1.39.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
   name: githubissues-operator.v0.0.1
@@ -31,6 +31,10 @@ spec:
       displayName: Github Issue
       kind: GithubIssue
       name: githubissues.training.redhat.com
+      statusDescriptors:
+      - description: LastUpdateTime is the last time the status was updated.
+        displayName: Last Update Time
+        path: lastUpdateTime
       version: v1alpha1
   description: githubissue-operaor-create-github-issue
   displayName: githubissue-operatr
