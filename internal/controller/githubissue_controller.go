@@ -151,15 +151,67 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		fmt.Printf("\nIssue %d:\n", i)
 		titleStr := fmt.Sprintf(item["title"].(string))
 		isOpen := fmt.Sprintf(item["state"].(string))
+		// url := fmt.Sprintf(item["url"].(string))
 		if (strings.TrimRight(string(titleStr), "\n") == title) && isOpen == "open" {
 			break
 		}
 	}
 
-	// validate if the GitHub issue if the requiered issue is not exists when GitHub issues are empty or not
+	if false{
+		r.closeGithubIssue(title, description, url)
+		log.Info("Reconciling closeGithubIssue")
+	}
+
+	// validate if the requiered GitHub issue is not exists when GitHub issues are empty or not
 	if len(result) == 0 || i == len(result) {
 		r.createGithubIssue(title, description)
 		log.Info("Reconciling createGithubIssue")
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (r *GithubIssueReconciler) closeGithubIssue(title string, description string, url string) (ctrl.Result, error) {
+	// Read the token from file
+
+	tokenBytes, err := os.ReadFile("github_token")
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("error reading token: %w", err)
+	}
+
+	// Trim spaces and newlines from the token
+	tokenStr := strings.TrimSpace(string(tokenBytes))
+
+	// JSON payload for the issue
+	jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"closed\"}", title, description)
+
+	// Create a new HTTP request
+	req, err := http.NewRequest("PATCH", url, bytes.NewBuffer([]byte(jsonStr)))
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("error creating request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Add("Authorization", "token "+tokenStr)
+	req.Header.Add("Accept", "application/vnd.github.v3+json")
+
+	// The GitHub REST API is versioned.
+	// The API version name is based on the date when the API version was released.
+	// For example, the API version 2022-11-28 was released on Mon, 28 Nov 2022.
+	req.Header.Add("X-GitHub-Api-Version", "2022-11-28")
+
+	// Create HTTP client and send request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("error reading token: \n")
+		return ctrl.Result{}, fmt.Errorf("error sending request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check response status
+	if resp.StatusCode != http.StatusCreated {
+		return ctrl.Result{}, fmt.Errorf("GitHub API returned status: %d", resp.StatusCode)
 	}
 
 	return ctrl.Result{}, nil
@@ -177,7 +229,7 @@ func (r *GithubIssueReconciler) createGithubIssue(title string, description stri
 	tokenStr := strings.TrimSpace(string(tokenBytes))
 
 	// JSON payload for the issue
-	jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\"}", title, description)
+	jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"open\"}", title, description)
 	url := "https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues"
 
 	// Create a new HTTP request
