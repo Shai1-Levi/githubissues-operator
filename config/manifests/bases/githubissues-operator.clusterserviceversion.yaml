@@ -14,6 +14,10 @@ spec:
       displayName: Github Issue
       kind: GithubIssue
       name: githubissues.training.redhat.com
+      statusDescriptors:
+      - description: LastUpdateTime is the last time the status was updated.
+        displayName: Last Update Time
+        path: lastUpdateTime
       version: v1alpha1
   description: githubissue-operaor-create-github-issue
   displayName: githubissue-operatr
