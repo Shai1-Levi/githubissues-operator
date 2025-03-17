@@ -26,24 +26,16 @@ import (
 
 	trainingv1alpha1 "Shai1-Levi/githubissues-operator.git/api/v1alpha1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	// metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
-	// "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	// "k8s.io/apimachinery/pkg/runtime/schema"
-	// "k8s.io/client-go/dynamic"
-	"k8s.io/client-go/tools/clientcmd"
 	"net/http"
 	"os"
 	"strings"
-
-	// for listing CRD, go provides client which is different from
-	// "kubernetes.clientset"
-	// This clientset will be used to list down the existing CRD
-	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 )
 
 // GithubIssueReconciler reconciles a GithubIssue object
@@ -65,37 +57,13 @@ type GithubIssueReconciler struct {
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.0/pkg/reconcile
+
 func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-	log.Info("Reconciling GithubIssue")
-
-	// 1. Create custom crdClientSet
-	// here restConfig is your .kube/config file
-	// Path to your kubeconfig file
-	kubeconfig := "/home/slevi/.kube/config"
-
-	// Load the kubeconfig file
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-	if err != nil {
-		fmt.Println("Error loading kubeconfig:", err)
-		os.Exit(1)
-	}
-
-	crdClientSet, err := clientset.NewForConfig(config)
-	if err != nil {
-		return ctrl.Result{}, nil
-	}
-
-	// 2. List down all the existing crd in the cluster
-	crdList, err := crdClientSet.ApiextensionsV1().CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return ctrl.Result{}, nil
-	}
-
-	fmt.Print("Found")
-	fmt.Print(len(crdList.Items))
-
-	// #################################### the code above is not needed
+	log.Info("Begin GithubIssue Reconcile")
+	defer log.Info("Finish GithubIssue Reconcile")
+	// Reconcile requeue results
+	emptyResult := ctrl.Result{}
 
 	// Fetch issues from GitHub
 	body, err := r.fetchGitHubIssues()
@@ -113,71 +81,50 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Info("err\n")
 	}
 
-	// var i int
-
-	// // Print all keys and values dynamically
-	// for i = 0; i < len(GitHubIssues); i++ {
-	// 	item := GitHubIssues[i]
-	// 	fmt.Printf("\nIssue %d:\n", i)
-	// 	titleStr := fmt.Sprintf(item["title"].(string))
-	// 	isOpen := fmt.Sprintf(item["state"].(string))
-	// 	// url := fmt.Sprintf(item["url"].(string))
-	// 	if (strings.TrimRight(string(titleStr), "\n") == title) && isOpen == "open" {
-	// 		break
-	// 	}
-	// }
-
-	// // Create dynamic client
-	// dynClient, err := dynamic.NewForConfig(config)
-	// if err != nil {
-	// 	fmt.Println("Error creating dynamic client:", err)
-	// 	return ctrl.Result{}, nil
-	// }
-
-	// // Define the GroupVersionResource (GVR) for your CRD
-	// gvr := schema.GroupVersionResource{
-	// 	Group:    "training.redhat.com",
-	// 	Version:  "v1alpha1",
-	// 	Resource: "githubissues", // Plural form of your CRD
-	// }
-
-	// // Fetch a specific CR instance (replace "githubissue-sample" with your CR name)
-	// crName := "example-issue" // TODO: $###########################################################################################################3
-	// cr, err := dynClient.Resource(gvr).Namespace("default").Get(context.TODO(), crName, metav1.GetOptions{})
-	// if err != nil {
-	// 	fmt.Println("Error fetching Custom Resource:", err)
-	// 	return ctrl.Result{}, nil
-	// }
-
-	// // Extract `spec` field from cr
-	// title, found, err := unstructured.NestedString(cr.Object, "spec", "title")
-	// description, found, err := unstructured.NestedString(cr.Object, "spec", "description")
-	// if err != nil || !found {
-	// 	fmt.Println("Error retrieving spec:", err)
-	// 	return ctrl.Result{}, nil
-	// }
-
-	// Print the spec content
-	// fmt.Println("Spec of", crName, ":", title)
-
+	// Fetch the GithubIssue instance
 	ghi := &trainingv1alpha1.GithubIssue{}
 	if err := r.Get(ctx, req.NamespacedName, ghi); err != nil {
 		if apiErrors.IsNotFound(err) {
 			// FenceAgentsRemediation CR was not found, and it could have been deleted after reconcile request.
 			// Return and don't requeue
+			log.Info("GithubIssue CR was not found", "CR Name", req.Name, "CR Namespace", req.Namespace)
+			return emptyResult, nil
+		}
+		log.Error(err, "Failed to get GithubIssue CR")
+		return emptyResult, err
+	}
 
-			log.Info("ghi1")
-			fmt.Print(ghi.Spec.Title)
-			fmt.Print(ghi.Spec.Description)
-			// fmt.Print(ghi)
+	// // At the end of each Reconcile we try to update CR's status
+	// defer func() {
+	// 	if updateErr := r.updateStatus(ctx, ghi); updateErr != nil {
+	// 		if apiErrors.IsConflict(updateErr) {
+	// 			log.Info("Conflict has occurred on updating the CR status")
+	// 		}
+	// 		finalErr = utilErrors.NewAggregate([]error{updateErr, finalErr})
+	// 	}
+	// }()
 
-			// Extract `spec` field from cr
+	// name of our custom finalizer
+	myFinalizerName := "github-issue.kubebuilder.io/finalizer"
+
+	// examine DeletionTimestamp to determine if object is under deletion
+	if ghi.ObjectMeta.DeletionTimestamp.IsZero() {
+		// The object is not being deleted, so if it does not have our finalizer,
+		// then let's add the finalizer and update the object. This is equivalent
+		// to registering our finalizer.
+		if !controllerutil.ContainsFinalizer(ghi, myFinalizerName) {
+			controllerutil.AddFinalizer(ghi, myFinalizerName)
+			log.Info("AddingFinalizer")
+			if err := r.Update(ctx, ghi); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	} else {
+		// The object is being deleted
+		if controllerutil.ContainsFinalizer(ghi, myFinalizerName) {
+			// our finalizer is present, so let's handle any external dependency
 			title := ghi.Spec.Title
 			description := ghi.Spec.Description
-			// if err != nil || !found {
-			// 	fmt.Println("Error retrieving spec:", err)
-			// 	return ctrl.Result{}, nil
-			// }
 
 			var i int
 			var url string
@@ -189,45 +136,40 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				titleStr := fmt.Sprintf(item["title"].(string))
 				isOpen := fmt.Sprintf(item["state"].(string))
 				url = fmt.Sprintf(item["url"].(string))
-				fmt.Println("url:", url)
 				if (strings.TrimRight(string(titleStr), "\n") == title) && isOpen == "open" {
+					if _, err := r.closeGithubIssue(title, description, url); err != nil {
+						// if fail to delete the external dependency here, return with error
+						// so that it can be retried.
+						return ctrl.Result{}, err
+					}
 					break
 				}
 			}
 
-			log.Info("GitHubIssue CR was not found", "CR Name", req.Name, "CR Namespace", req.Namespace)
-			// log.Info("SHAI", "url:", url, "\ntitle:", title, "\ndescription", description)
-			r.closeGithubIssue(title, description, url)
-			log.Info("Reconciling closeGithubIssue")
-			return ctrl.Result{}, nil
-		}
-		log.Error(err, "Failed to get GitHubIssue CR")
-		return ctrl.Result{}, err
-	}
+			log.Info("RemoveFinalizer")
 
-	log.Info("ghi2")
-	fmt.Print(ghi.Spec.Title)
-	fmt.Print(ghi.Spec.Description)
-	// fmt.Print(ghi)
+			// remove our finalizer from the list and update it.
+			controllerutil.RemoveFinalizer(ghi, myFinalizerName)
+			if err := r.Update(ctx, ghi); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		// Stop reconciliation as the item is being deleted
+		return ctrl.Result{}, nil
+	}
 
 	// Extract `spec` field from cr
 	title := ghi.Spec.Title
 	description := ghi.Spec.Description
-	// if err != nil || !found {
-	// 	fmt.Println("Error retrieving spec:", err)
-	// 	return ctrl.Result{}, nil
-	// }
 
 	var i int
-	// var url string
-	// url = ""
-	// Print all keys and values dynamically
+
 	for i = 0; i < len(GitHubIssues); i++ {
 		item := GitHubIssues[i]
 		fmt.Printf("\nIssue %d:\n", i)
 		titleStr := fmt.Sprintf(item["title"].(string))
 		isOpen := fmt.Sprintf(item["state"].(string))
-		// url = fmt.Sprintf(item["url"].(string))
 		if (strings.TrimRight(string(titleStr), "\n") == title) && isOpen == "open" {
 			break
 		}
@@ -238,92 +180,6 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		r.createGithubIssue(title, description)
 		log.Info("Reconciling createGithubIssue")
 	}
-
-	// for _, crd := range crdList.Items {
-	// 	fmt.Printf("- CRD: %s\n", crd.Name)
-
-	// 	var i int
-	// 	var url string
-	// 	url = ""
-
-	// 	// Print conditions (status)
-	// 	if len(crd.Status.Conditions) > 0 {
-	// 		fmt.Println("  Status Conditions:")
-	// 		for _, condition := range crd.Status.Conditions {
-
-	// 			fmt.Printf("    - Type: %s, Status: %s, Reason: %s, Message: %s\n",
-	// 				condition.Type, condition.Status, condition.Reason, condition.Message)
-
-	// 			if condition.Type == "Established" && condition.Status == "True" { // Create new GitHub-issue
-	// 				fmt.Printf("    - Established: %t\n", condition.Type == "Established" && condition.Status == "True")
-
-	// 				// validate if the requiered GitHub issue is not exists when GitHub issues are empty or not
-	// 				if len(GitHubIssues) == 0 || i == len(GitHubIssues) {
-	// 					r.createGithubIssue(title, description)
-	// 					log.Info("Reconciling createGithubIssue")
-	// 				}
-	// 			} else if condition.Type == "Terminating" && condition.Status == "True" { // Close GitHub-issue, CR deleted
-	// 				fmt.Println("  Terminating: True")
-	// 				r.closeGithubIssue(title, description, url)
-	// 				log.Info("Reconciling closeGithubIssue")
-	// 			}
-	// 		}
-	// 	} else {
-	// 		fmt.Println("  Status: No conditions found")
-	// 	}
-	// }
-
-	// // Extract `spec` field
-	// title, found, err := unstructured.NestedString(cr.Object, "spec", "title")
-	// description, found, err := unstructured.NestedString(cr.Object, "spec", "description")
-	// if err != nil || !found {
-	// 	fmt.Println("Error retrieving spec:", err)
-	// 	os.Exit(1)
-	// }
-
-	// // Print the spec content
-	// fmt.Println("Spec of", crName, ":", title)
-
-	// // Fetch issues from GitHub
-	// body, err := r.fetchGitHubIssues()
-	// if err != nil {
-	// 	log.Info("Failed to fetch GitHub issues")
-	// 	return ctrl.Result{}, nil
-	// }
-
-	// // Define a generic map
-	// var result []map[string]interface{}
-
-	// // Parse the JSON
-	// err = json.Unmarshal(body, &result)
-	// if err != nil {
-	// 	log.Info("err\n")
-	// }
-
-	// var i int
-
-	// // Print all keys and values dynamically
-	// for i = 0; i < len(result); i++ {
-	// 	item := result[i]
-	// 	fmt.Printf("\nIssue %d:\n", i)
-	// 	titleStr := fmt.Sprintf(item["title"].(string))
-	// 	isOpen := fmt.Sprintf(item["state"].(string))
-	// 	// url := fmt.Sprintf(item["url"].(string))
-	// 	if (strings.TrimRight(string(titleStr), "\n") == title) && isOpen == "open" {
-	// 		break
-	// 	}
-	// }
-
-	// // if false {
-	// // 	r.closeGithubIssue(title, description, url)
-	// // 	log.Info("Reconciling closeGithubIssue")
-	// // }
-
-	// // validate if the requiered GitHub issue is not exists when GitHub issues are empty or not
-	// if len(result) == 0 || i == len(result) {
-	// 	r.createGithubIssue(title, description)
-	// 	log.Info("Reconciling createGithubIssue")
-	// }
 
 	return ctrl.Result{}, nil
 }
