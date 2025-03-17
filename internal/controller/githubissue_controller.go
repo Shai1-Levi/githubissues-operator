@@ -162,6 +162,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Extract `spec` field from cr
 	title := ghi.Spec.Title
 	description := ghi.Spec.Description
+	repo := ghi.Spec.Repo
 
 	var i int
 
@@ -177,7 +178,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// validate if the requiered GitHub issue is not exists when GitHub issues are empty or not
 	if len(GitHubIssues) == 0 || i == len(GitHubIssues) {
-		r.createGithubIssue(title, description)
+		r.createGithubIssue(title, description, repo)
 		log.Info("Reconciling createGithubIssue")
 	}
 
@@ -230,7 +231,7 @@ func (r *GithubIssueReconciler) closeGithubIssue(title string, description strin
 	return ctrl.Result{}, nil
 }
 
-func (r *GithubIssueReconciler) createGithubIssue(title string, description string) (ctrl.Result, error) {
+func (r *GithubIssueReconciler) createGithubIssue(title string, description string, repo string) (ctrl.Result, error) {
 	// Read the token from file
 
 	tokenBytes, err := os.ReadFile("github_token")
@@ -243,10 +244,10 @@ func (r *GithubIssueReconciler) createGithubIssue(title string, description stri
 
 	// JSON payload for the issue
 	jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"open\"}", title, description)
-	url := "https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues"
+	// url := "https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues"
 
 	// Create a new HTTP request
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte(jsonStr)))
+	req, err := http.NewRequest("POST", repo, bytes.NewBuffer([]byte(jsonStr)))
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("error creating request: %w", err)
 	}
