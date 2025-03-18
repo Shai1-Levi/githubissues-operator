@@ -262,7 +262,7 @@ func (r *GithubIssueReconciler) createGithubIssue(title string, description stri
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("error reading token: \n")
+		fmt.Printf("error reading token2: \n")
 		return ctrl.Result{}, fmt.Errorf("error sending request: %w", err)
 	}
 	defer resp.Body.Close()
