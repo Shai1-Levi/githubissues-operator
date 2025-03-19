@@ -26,8 +26,11 @@ import (
 
 	trainingv1alpha1 "Shai1-Levi/githubissues-operator.git/api/v1alpha1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	// metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"bytes"
 	"encoding/json"
@@ -65,8 +68,24 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Reconcile requeue results
 	emptyResult := ctrl.Result{}
 
+	// Step 1: Create Kubernetes config
+	config, err := GetKubeConfig()
+	if err != nil {
+		fmt.Printf("Error getting Kubernetes config: %v", err)
+	}
+
+	// Step 2: Create Kubernetes clientset
+	clientSet, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		fmt.Printf("Error creating Kubernetes clientset: %v", err)
+	}
+
+	accessToken, err := GetSecretData(clientSet, "my-secret", "githubissues-operator-system")
+
+	fmt.Println(accessToken)
+
 	// Fetch issues from GitHub
-	body, err := r.fetchGitHubIssues()
+	body, err := r.fetchGitHubIssues(accessToken)
 	if err != nil {
 		log.Info("Failed to fetch GitHub issues")
 		return ctrl.Result{}, nil
@@ -137,7 +156,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				isOpen := fmt.Sprintf(item["state"].(string))
 				url = fmt.Sprintf(item["url"].(string))
 				if (strings.TrimRight(string(titleStr), "\n") == title) && isOpen == "open" {
-					if _, err := r.closeGithubIssue(title, description, url); err != nil {
+					if _, err := r.closeGithubIssue(title, description, url, accessToken); err != nil {
 						// if fail to delete the external dependency here, return with error
 						// so that it can be retried.
 						return ctrl.Result{}, err
@@ -178,23 +197,52 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// validate if the requiered GitHub issue is not exists when GitHub issues are empty or not
 	if len(GitHubIssues) == 0 || i == len(GitHubIssues) {
-		r.createGithubIssue(title, description, repo)
+		r.createGithubIssue(title, description, repo, accessToken)
 		log.Info("Reconciling createGithubIssue")
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *GithubIssueReconciler) closeGithubIssue(title string, description string, url string) (ctrl.Result, error) {
-	// Read the token from file
-
-	tokenBytes, err := os.ReadFile("github_token")
+// GetSecretData searches for the GitHub's secret, and then returns its decoded token.
+func GetSecretData(clientSet *kubernetes.Clientset, secretName, secretNamespace string) (string, error) {
+	// Get the secret from the specified namespace
+	secret, err := clientSet.CoreV1().Secrets(secretNamespace).Get(context.TODO(), secretName, metav1.GetOptions{})
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("error reading token: %w", err)
+		fmt.Printf("Error getting secret: %v", err)
 	}
 
+	// Extract the token value
+	tokenBase64, exists := secret.Data["token"] // "token" is the key inside the secret
+	if !exists {
+		fmt.Println("Token key not found in secret")
+	}
+
+	// Decode the token
+	token := string(tokenBase64) // Secret data is already in []byte format
+	return token, nil
+}
+
+// GetKubeConfig returns the appropriate Kubernetes config
+func GetKubeConfig() (*rest.Config, error) {
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		// Running inside a cluster
+		return rest.InClusterConfig()
+	}
+	// Running outside cluster (local development)
+	return clientcmd.BuildConfigFromFlags("", "/home/slevi/.kube/config")
+}
+
+func (r *GithubIssueReconciler) closeGithubIssue(title string, description string, url string, accessToken string) (ctrl.Result, error) {
+	// Read the token from file
+
+	// tokenBytes, err := os.ReadFile("github_token")
+	// if err != nil {
+	// 	return ctrl.Result{}, fmt.Errorf("error reading token: %w", err)
+	// }
+
 	// Trim spaces and newlines from the token
-	tokenStr := strings.TrimSpace(string(tokenBytes))
+	tokenStr := strings.TrimSpace(accessToken)
 
 	// JSON payload for the issue
 	jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"closed\"}", title, description)
@@ -231,16 +279,16 @@ func (r *GithubIssueReconciler) closeGithubIssue(title string, description strin
 	return ctrl.Result{}, nil
 }
 
-func (r *GithubIssueReconciler) createGithubIssue(title string, description string, repo string) (ctrl.Result, error) {
+func (r *GithubIssueReconciler) createGithubIssue(title string, description string, repo string, accessToken string) (ctrl.Result, error) {
 	// Read the token from file
 
-	tokenBytes, err := os.ReadFile("github_token")
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("error reading token: %w", err)
-	}
+	// tokenBytes, err := os.ReadFile("github_token")
+	// if err != nil {
+	// 	return ctrl.Result{}, fmt.Errorf("error reading token: %w", err)
+	// }
 
 	// Trim spaces and newlines from the token
-	tokenStr := strings.TrimSpace(string(tokenBytes))
+	tokenStr := strings.TrimSpace(accessToken)
 
 	// JSON payload for the issue
 	jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"open\"}", title, description)
@@ -279,15 +327,15 @@ func (r *GithubIssueReconciler) createGithubIssue(title string, description stri
 }
 
 // fetchGitHubIssues reads the token, sends the request, and returns the response body
-func (r *GithubIssueReconciler) fetchGitHubIssues() ([]byte, error) {
+func (r *GithubIssueReconciler) fetchGitHubIssues(accessToken string) ([]byte, error) {
 	// Read the token from file
-	tokenBytes, err := os.ReadFile("github_token")
-	if err != nil {
-		return nil, fmt.Errorf("error reading token: %w", err)
-	}
+	// tokenBytes, err := os.ReadFile("github_token")
+	// if err != nil {
+	// 	return nil, fmt.Errorf("error reading token: %w", err)
+	// }
 
 	// Trim spaces and newlines from the token
-	tokenStr := strings.TrimSpace(string(tokenBytes))
+	tokenStr := strings.TrimSpace(accessToken)
 	url := "https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues"
 
 	// Create a new HTTP request
