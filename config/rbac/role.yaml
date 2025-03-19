@@ -30,3 +30,9 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - ""
+  resources:
+  - pods/exec
+  verbs:
+  - create

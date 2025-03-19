@@ -27,10 +27,15 @@ import (
 	trainingv1alpha1 "Shai1-Levi/githubissues-operator.git/api/v1alpha1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"k8s.io/client-go/tools/remotecommand"
+	// "sigs.k8s.io/controller-runtime/pkg/client/config"
+
+
 
 	"bytes"
 	"encoding/json"
@@ -65,7 +70,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log := log.FromContext(ctx)
 	log.Info("Begin GithubIssue Reconcile")
 	defer log.Info("Finish GithubIssue Reconcile")
-	
+
 	// Reconcile requeue results
 	emptyResult := ctrl.Result{}
 
@@ -81,7 +86,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		fmt.Printf("Error creating Kubernetes clientset: %v", err)
 	}
 
-	accessToken, err := GetSecretData(clientSet, "my-secret", "githubissues-operator-system")
+	accessToken, err := GetSecretData(clientSet, "env-single-secret", "githubissues-operator-system")
 
 	// Fetch issues from GitHub
 	body, err := r.fetchGitHubIssues(accessToken)
@@ -204,22 +209,64 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 // GetSecretData searches for the GitHub's secret, and then returns its decoded token.
+// func GetSecretData(clientSet *kubernetes.Clientset, secretName, secretNamespace string) (string, error) {
+// 	// Get the secret from the specified namespace
+// 	secret, err := clientSet.CoreV1().Secrets(secretNamespace).Get(context.TODO(), secretName, metav1.GetOptions{})
+// 	if err != nil {
+// 		fmt.Printf("Error getting secret: %v", err)
+// 	}
+
+// 	Extract the token value
+// 	tokenBase64, exists := secret.Data["token"] // "token" is the key inside the secret
+// 	if !exists {
+// 		fmt.Println("Token key not found in secret")
+// 	}
+
+// 	// Decode the token
+// 	token := string(tokenBase64) // Secret data is already in []byte format
+// 	return secret, nil
+// }
+
 func GetSecretData(clientSet *kubernetes.Clientset, secretName, secretNamespace string) (string, error) {
-	// Get the secret from the specified namespace
-	secret, err := clientSet.CoreV1().Secrets(secretNamespace).Get(context.TODO(), secretName, metav1.GetOptions{})
+	// podName := "env-single-secret"
+	// namespace := "default"
+
+	req := clientSet.CoreV1().RESTClient().
+		Post().
+		Namespace(secretNamespace).
+		Resource("pods").
+		Name(secretName).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Command: []string{"sh", "-c", "echo $SECRET_USERNAME"},
+			Stdout:  true,
+			Stderr:  true,
+			TTY:     false,
+		}, metav1.ParameterCodec)
+
+	// Step 1: Create Kubernetes config
+	config, err := GetKubeConfig()
 	if err != nil {
-		fmt.Printf("Error getting secret: %v", err)
+		fmt.Printf("Error getting Kubernetes config: %v", err)
 	}
 
-	// Extract the token value
-	tokenBase64, exists := secret.Data["token"] // "token" is the key inside the secret
-	if !exists {
-		fmt.Println("Token key not found in secret")
+	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
+	if err != nil {
+		fmt.Printf("Error creating SPDY executor: %v", err)
 	}
 
-	// Decode the token
-	token := string(tokenBase64) // Secret data is already in []byte format
-	return token, nil
+	var stdout, stderr bytes.Buffer
+	err = exec.Stream(remotecommand.StreamOptions{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+
+	if err != nil {
+		fmt.Printf("Error executing command: %v, stderr: %s", err, stderr.String())
+	}
+
+	fmt.Println("Secret Value from Pod:", stdout.String())
+	return stdout.String(), nil
 }
 
 // GetKubeConfig returns the appropriate Kubernetes config
