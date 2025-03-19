@@ -65,6 +65,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log := log.FromContext(ctx)
 	log.Info("Begin GithubIssue Reconcile")
 	defer log.Info("Finish GithubIssue Reconcile")
+	
 	// Reconcile requeue results
 	emptyResult := ctrl.Result{}
 
@@ -81,8 +82,6 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	accessToken, err := GetSecretData(clientSet, "my-secret", "githubissues-operator-system")
-
-	fmt.Println(accessToken)
 
 	// Fetch issues from GitHub
 	body, err := r.fetchGitHubIssues(accessToken)
@@ -234,12 +233,6 @@ func GetKubeConfig() (*rest.Config, error) {
 }
 
 func (r *GithubIssueReconciler) closeGithubIssue(title string, description string, url string, accessToken string) (ctrl.Result, error) {
-	// Read the token from file
-
-	// tokenBytes, err := os.ReadFile("github_token")
-	// if err != nil {
-	// 	return ctrl.Result{}, fmt.Errorf("error reading token: %w", err)
-	// }
 
 	// Trim spaces and newlines from the token
 	tokenStr := strings.TrimSpace(accessToken)
@@ -280,12 +273,6 @@ func (r *GithubIssueReconciler) closeGithubIssue(title string, description strin
 }
 
 func (r *GithubIssueReconciler) createGithubIssue(title string, description string, repo string, accessToken string) (ctrl.Result, error) {
-	// Read the token from file
-
-	// tokenBytes, err := os.ReadFile("github_token")
-	// if err != nil {
-	// 	return ctrl.Result{}, fmt.Errorf("error reading token: %w", err)
-	// }
 
 	// Trim spaces and newlines from the token
 	tokenStr := strings.TrimSpace(accessToken)
@@ -328,11 +315,6 @@ func (r *GithubIssueReconciler) createGithubIssue(title string, description stri
 
 // fetchGitHubIssues reads the token, sends the request, and returns the response body
 func (r *GithubIssueReconciler) fetchGitHubIssues(accessToken string) ([]byte, error) {
-	// Read the token from file
-	// tokenBytes, err := os.ReadFile("github_token")
-	// if err != nil {
-	// 	return nil, fmt.Errorf("error reading token: %w", err)
-	// }
 
 	// Trim spaces and newlines from the token
 	tokenStr := strings.TrimSpace(accessToken)
