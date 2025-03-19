@@ -27,7 +27,7 @@ import (
 	trainingv1alpha1 "Shai1-Levi/githubissues-operator.git/api/v1alpha1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	// metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 
 	"bytes"
 	"encoding/json"
@@ -62,11 +62,19 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log := log.FromContext(ctx)
 	log.Info("Begin GithubIssue Reconcile")
 	defer log.Info("Finish GithubIssue Reconcile")
+
 	// Reconcile requeue results
 	emptyResult := ctrl.Result{}
 
+	accessToken := os.Getenv("SECRET_Token") // Read the environment variable
+
+	if accessToken == "" {
+		fmt.Println("SECRET_Token is not set")
+		return ctrl.Result{}, nil
+	}
+
 	// Fetch issues from GitHub
-	body, err := r.fetchGitHubIssues()
+	body, err := r.fetchGitHubIssues(accessToken)
 	if err != nil {
 		log.Info("Failed to fetch GitHub issues")
 		return ctrl.Result{}, nil
@@ -137,7 +145,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				isOpen := fmt.Sprintf(item["state"].(string))
 				url = fmt.Sprintf(item["url"].(string))
 				if (strings.TrimRight(string(titleStr), "\n") == title) && isOpen == "open" {
-					if _, err := r.closeGithubIssue(title, description, url); err != nil {
+					if _, err := r.closeGithubIssue(title, description, url, accessToken); err != nil {
 						// if fail to delete the external dependency here, return with error
 						// so that it can be retried.
 						return ctrl.Result{}, err
@@ -178,23 +186,17 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// validate if the requiered GitHub issue is not exists when GitHub issues are empty or not
 	if len(GitHubIssues) == 0 || i == len(GitHubIssues) {
-		r.createGithubIssue(title, description, repo)
+		r.createGithubIssue(title, description, repo, accessToken)
 		log.Info("Reconciling createGithubIssue")
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *GithubIssueReconciler) closeGithubIssue(title string, description string, url string) (ctrl.Result, error) {
-	// Read the token from file
-
-	tokenBytes, err := os.ReadFile("github_token")
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("error reading token: %w", err)
-	}
+func (r *GithubIssueReconciler) closeGithubIssue(title string, description string, url string, accessToken string) (ctrl.Result, error) {
 
 	// Trim spaces and newlines from the token
-	tokenStr := strings.TrimSpace(string(tokenBytes))
+	tokenStr := strings.TrimSpace(accessToken)
 
 	// JSON payload for the issue
 	jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"closed\"}", title, description)
@@ -231,16 +233,10 @@ func (r *GithubIssueReconciler) closeGithubIssue(title string, description strin
 	return ctrl.Result{}, nil
 }
 
-func (r *GithubIssueReconciler) createGithubIssue(title string, description string, repo string) (ctrl.Result, error) {
-	// Read the token from file
-
-	tokenBytes, err := os.ReadFile("github_token")
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("error reading token: %w", err)
-	}
+func (r *GithubIssueReconciler) createGithubIssue(title string, description string, repo string, accessToken string) (ctrl.Result, error) {
 
 	// Trim spaces and newlines from the token
-	tokenStr := strings.TrimSpace(string(tokenBytes))
+	tokenStr := strings.TrimSpace(accessToken)
 
 	// JSON payload for the issue
 	jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"open\"}", title, description)
@@ -279,15 +275,10 @@ func (r *GithubIssueReconciler) createGithubIssue(title string, description stri
 }
 
 // fetchGitHubIssues reads the token, sends the request, and returns the response body
-func (r *GithubIssueReconciler) fetchGitHubIssues() ([]byte, error) {
-	// Read the token from file
-	tokenBytes, err := os.ReadFile("github_token")
-	if err != nil {
-		return nil, fmt.Errorf("error reading token: %w", err)
-	}
+func (r *GithubIssueReconciler) fetchGitHubIssues(accessToken string) ([]byte, error) {
 
 	// Trim spaces and newlines from the token
-	tokenStr := strings.TrimSpace(string(tokenBytes))
+	tokenStr := strings.TrimSpace(accessToken)
 	url := "https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues"
 
 	// Create a new HTTP request

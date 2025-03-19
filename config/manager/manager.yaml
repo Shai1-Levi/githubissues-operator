@@ -91,5 +91,12 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
+        env:
+          # Define environment variable from a Secret
+          - name: SECRET_Token  # This is the environment variable the Go code will use
+            valueFrom:
+              secretKeyRef:
+                name: my-secret
+                key: token
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
