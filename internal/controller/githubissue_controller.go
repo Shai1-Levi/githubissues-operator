@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -164,7 +165,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 
 		// Stop reconciliation as the item is being deleted
-		return ctrl.Result{}, nil
+		return ctrl.Result{RequeueAfter: time.Minute * 1}, nil
 	}
 
 	// Extract `spec` field from cr
@@ -190,7 +191,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Info("Reconciling createGithubIssue")
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: time.Minute * 1}, nil
 }
 
 func (r *GithubIssueReconciler) closeGithubIssue(title string, description string, url string, accessToken string) (ctrl.Result, error) {
