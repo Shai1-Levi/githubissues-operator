@@ -6,3 +6,11 @@ nameReference:
   - kind: Certificate
     group: cert-manager.io
     path: spec/issuerRef/name
+
+varReference:
+- kind: Certificate
+  group: cert-manager.io
+  path: spec/commonName
+- kind: Certificate
+  group: cert-manager.io
+  path: spec/dnsNames
