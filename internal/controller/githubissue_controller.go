@@ -314,6 +314,5 @@ func (r *GithubIssueReconciler) fetchGitHubIssues(accessToken string) ([]byte, e
 func (r *GithubIssueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&trainingv1alpha1.GithubIssue{}).
-		WithOptions(controller.Options{MaxConcurrentReconciles: 2}).
 		Complete(r)
 }

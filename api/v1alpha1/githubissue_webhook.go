@@ -20,7 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	// "sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -41,7 +41,7 @@ func (r *GithubIssue) SetupWebhookWithManager(mgr ctrl.Manager) error {
 // Modifying the path for an invalid path can cause API server errors; failing to locate the webhook.
 // +kubebuilder:webhook:path=/validate-training-redhat-com-v1alpha1-githubissue,mutating=false,failurePolicy=fail,sideEffects=None,groups=training.redhat.com,resources=githubissues,verbs=create;update,versions=v1alpha1,name=vgithubissue.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Validator = &GithubIssue{}
+// var _ webhook.Validator = &GithubIssue{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *GithubIssue) ValidateCreate() (admission.Warnings, error) {

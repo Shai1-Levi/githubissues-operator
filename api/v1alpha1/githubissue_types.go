@@ -67,6 +67,7 @@ type GithubIssueStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+//+kubebuilder:storageversion
 
 // GithubIssue is the Schema for the githubissues API
 type GithubIssue struct {
