@@ -203,3 +203,24 @@ spec:
   provider:
     name: shai
   version: 0.0.1
+  webhookdefinitions:
+  - admissionReviewVersions:
+    - v1
+    containerPort: 443
+    deploymentName: githubissues-controller-manager
+    failurePolicy: Fail
+    generateName: vfenceagentsremediation.kb.io
+    rules:
+    - apiGroups:
+      - training.redhat.com
+      apiVersions:
+      - v1alpha1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - githubissues
+    sideEffects: None
+    targetPort: 9443
+    type: ValidatingAdmissionWebhook
+    webhookPath: /validate-githubissues-medik8s-io-v1alpha1-fenceagentsremediation
