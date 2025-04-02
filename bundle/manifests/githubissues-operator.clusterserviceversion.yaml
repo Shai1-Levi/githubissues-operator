@@ -207,9 +207,9 @@ spec:
   - admissionReviewVersions:
     - v1
     containerPort: 443
-    deploymentName: githubissues-controller-manager
+    deploymentName: githubissues-operator-controller-manager
     failurePolicy: Fail
-    generateName: vfenceagentsremediation.kb.io
+    generateName: vgithubissue.kb.io
     rules:
     - apiGroups:
       - training.redhat.com
@@ -218,9 +218,10 @@ spec:
       operations:
       - CREATE
       - UPDATE
+      - DELETE
       resources:
       - githubissues
     sideEffects: None
     targetPort: 9443
     type: ValidatingAdmissionWebhook
-    webhookPath: /validate-githubissues-medik8s-io-v1alpha1-fenceagentsremediation
+    webhookPath: /validate-training-redhat-com-v1alpha1-githubissue

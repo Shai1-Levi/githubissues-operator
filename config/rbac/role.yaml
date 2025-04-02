@@ -9,12 +9,8 @@ rules:
   resources:
   - pods
   verbs:
-  - delete
-  - deletecollection
   - get
   - list
-  - update
-  - watch
 - apiGroups:
   - training.redhat.com
   resources:

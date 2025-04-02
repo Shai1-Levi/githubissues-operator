@@ -95,7 +95,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	ghi := &trainingv1alpha1.GithubIssue{}
 	if err := r.Get(ctx, req.NamespacedName, ghi); err != nil {
 		if apiErrors.IsNotFound(err) {
-			// FenceAgentsRemediation CR was not found, and it could have been deleted after reconcile request.
+			// GitHubIssue CR was not found, and it could have been deleted after reconcile request.
 			// Return and don't requeue
 			log.Info("GithubIssue CR was not found", "CR Name", req.Name, "CR Namespace", req.Namespace)
 			return emptyResult, nil
