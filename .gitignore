@@ -27,3 +27,5 @@ go.work
 *.swp
 *.swo
 *~
+
+githubissue-sample.yaml
