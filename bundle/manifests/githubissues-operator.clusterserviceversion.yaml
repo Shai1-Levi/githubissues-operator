@@ -203,3 +203,25 @@ spec:
   provider:
     name: shai
   version: 0.0.1
+  webhookdefinitions:
+  - admissionReviewVersions:
+    - v1
+    containerPort: 443
+    deploymentName: githubissues-operator-controller-manager
+    failurePolicy: Fail
+    generateName: vgithubissue.kb.io
+    rules:
+    - apiGroups:
+      - training.redhat.com
+      apiVersions:
+      - v1alpha1
+      operations:
+      - CREATE
+      - UPDATE
+      - DELETE
+      resources:
+      - githubissues
+    sideEffects: None
+    targetPort: 9443
+    type: ValidatingAdmissionWebhook
+    webhookPath: /validate-training-redhat-com-v1alpha1-githubissue

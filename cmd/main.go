@@ -93,6 +93,7 @@ func main() {
 	}
 
 	webhookServer := webhook.NewServer(webhook.Options{
+		Port:    9443,
 		TLSOpts: tlsOpts,
 	})
 
@@ -151,6 +152,11 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "GithubIssue")
 		os.Exit(1)
 	}
+	if err = (&trainingv1alpha1.GithubIssue{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "GithubIssue")
+		os.Exit(1)
+	}
+	
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
