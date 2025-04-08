@@ -6,4 +6,4 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: githubissue-sample
 spec:
-  # TODO(user): Add fields here
+  repo: https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues
