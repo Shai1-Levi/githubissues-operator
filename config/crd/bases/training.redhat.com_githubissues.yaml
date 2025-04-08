@@ -41,6 +41,9 @@ spec:
             properties:
               description:
                 type: string
+              issumeNumber:
+                format: int32
+                type: integer
               repo:
                 description: Must fields of GithubIssue. Edit githubissue_types.go
                   to remove/update to add more fileds.

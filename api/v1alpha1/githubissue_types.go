@@ -32,6 +32,7 @@ type GithubIssueSpec struct {
 	Repo        string `json:"repo,omitempty"`
 	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
+	IssueNumber int32  `json:"issumeNumber,omitempty"`
 }
 
 // GithubIssueStatus defines the observed state of GithubIssue
