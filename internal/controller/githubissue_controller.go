@@ -74,22 +74,6 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
-	// Fetch issues from GitHub
-	body, err := r.fetchGitHubIssues(accessToken)
-	if err != nil {
-		log.Info("Failed to fetch GitHub issues")
-		return ctrl.Result{}, nil
-	}
-
-	// Define a generic map for GitHubIssues
-	var GitHubIssues []map[string]interface{}
-
-	// Parse the JSON
-	err = json.Unmarshal(body, &GitHubIssues)
-	if err != nil {
-		log.Info("err\n")
-	}
-
 	// Fetch the GithubIssue instance
 	ghi := &trainingv1alpha1.GithubIssue{}
 	if err := r.Get(ctx, req.NamespacedName, ghi); err != nil {
@@ -112,6 +96,23 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// 		finalErr = utilErrors.NewAggregate([]error{updateErr, finalErr})
 	// 	}
 	// }()
+
+	// Fetch issues from GitHub
+	body, err := r.fetchGitHubIssues(accessToken)
+	if err != nil {
+		log.Info("Failed to fetch GitHub issues")
+		return ctrl.Result{}, nil
+	}
+
+	// Define a generic map for GitHubIssues
+	var GitHubIssues []map[string]interface{}
+
+	// Parse the JSON
+	err = json.Unmarshal(body, &GitHubIssues)
+	if err != nil {
+		log.Info("err\n")
+	}
+
 
 	// name of our custom finalizer
 	myFinalizerName := "github-issue.kubebuilder.io/finalizer"
@@ -172,6 +173,10 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	title := ghi.Spec.Title
 	description := ghi.Spec.Description
 	repo := ghi.Spec.Repo
+
+	if ghi.Spec.IssueNumber != null { 
+		issueNumber := ghi.Spec.IssueNumber
+	}
 
 	var i int
 
@@ -271,6 +276,20 @@ func (r *GithubIssueReconciler) createGithubIssue(title string, description stri
 	if resp.StatusCode != http.StatusCreated {
 		return ctrl.Result{}, fmt.Errorf("GitHub API returned status: %d", resp.StatusCode)
 	}
+
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("Error reading response body:", err)
+		return
+	}
+
+	// Print the response body
+	fmt.Println("Response:", string(body))
+
+	// ghi.Spec.IssueNumber = body.number
+	fmt.Println("Number:", string(body.number))
+	// Print the response body
 
 	return ctrl.Result{}, nil
 }
