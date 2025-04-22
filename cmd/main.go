@@ -20,6 +20,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	"path/filepath"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -37,7 +38,15 @@ import (
 
 	trainingv1alpha1 "Shai1-Levi/githubissues-operator.git/api/v1alpha1"
 	"Shai1-Levi/githubissues-operator.git/internal/controller"
+
 	// +kubebuilder:scaffold:imports
+	"github.com/go-logr/logr"
+)
+
+const (
+	WebhookCertDir  = "/apiserver.local.config/certificates"
+	WebhookCertName = "apiserver.crt"
+	WebhookKeyName  = "apiserver.key"
 )
 
 var (
@@ -92,10 +101,34 @@ func main() {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
-	webhookServer := webhook.NewServer(webhook.Options{
-		Port:    9443,
-		TLSOpts: tlsOpts,
-	})
+	// webhookServer := webhook.NewServer(webhook.Options{
+	// 	Port:    9443,
+	// 	TLSOpts: tlsOpts,
+	// })
+
+	// options := webhook.Options{
+	// 	Port:    9443,
+	// 	TLSOpts: tlsOpts,
+	// }
+
+	// // check if OLM injected certs exist
+	// certs := []string{filepath.Join(WebhookCertDir, WebhookCertName), filepath.Join(WebhookCertDir, WebhookKeyName)}
+	// certsInjected := true
+	// for _, fname := range certs {
+	// 	if _, err := os.Stat(fname); err != nil {
+	// 		certsInjected = false
+	// 		break
+	// 	}
+	// }
+	// if certsInjected {
+	// 	options.CertDir = WebhookCertDir
+	// 	options.CertName = WebhookCertName
+	// 	options.KeyName = WebhookKeyName
+	// } else {
+	// 	setupLog.Info("OLM injected certs for webhooks not found")
+	// }
+
+	// webhookServer := webhook.NewServer(options)
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:
@@ -124,7 +157,7 @@ func main() {
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
-		WebhookServer:          webhookServer,
+		WebhookServer:          getWebhookServer(tlsOpts, setupLog),
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "06473caf.redhat.com",
@@ -173,4 +206,32 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+
+func getWebhookServer(tlsOpts []func(*tls.Config), log logr.Logger) webhook.Server {
+
+	options := webhook.Options{
+		Port:    9443,
+		TLSOpts: tlsOpts,
+	}
+
+	// check if OLM injected certs exist
+	certs := []string{filepath.Join(WebhookCertDir, WebhookCertName), filepath.Join(WebhookCertDir, WebhookKeyName)}
+	certsInjected := true
+	for _, fname := range certs {
+		if _, err := os.Stat(fname); err != nil {
+			certsInjected = false
+			break
+		}
+	}
+	if certsInjected {
+		options.CertDir = WebhookCertDir
+		options.CertName = WebhookCertName
+		options.KeyName = WebhookKeyName
+	} else {
+		log.Info("OLM injected certs for webhooks not found")
+	}
+
+	return webhook.NewServer(options)
 }
