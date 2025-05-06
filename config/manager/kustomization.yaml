@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: quay.io/rh-ee-slevi/github-operator
-  newTag: v0.1
+  newTag: v0.99
