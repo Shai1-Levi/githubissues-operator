@@ -88,7 +88,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// Fetch issues from GitHub
-	body, err := r.fetchOpenGitHubIssues(accessToken)
+	body, err := r.fetchOpenGitHubIssuesInLastMin(accessToken)
 	if err != nil {
 		log.Info("Failed to fetch GitHub issues")
 		return ctrl.Result{}, nil
@@ -119,11 +119,46 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err // Example: Requeue on error
 	}
 
-	fmt.Printf("countInNamespace")
-	fmt.Print(countInNamespace)
+	if countInNamespace == 0 {
+		log.Info("There are CRs, sync with web")
+	}
 
 	if countInNamespace < GitHubIssues.TotalCount {
 		log.Info("There are missing Isuues, represent them on CRs")
+
+		// // Extract `spec` field from cr
+		// title := ghi.Spec.Title
+		// description := ghi.Spec.Description
+		// repo := ghi.Spec.Repo
+
+		var i int
+
+		for i = 0; i < len(GitHubIssues.Items); i++ {
+			item := GitHubIssues.Items[i]
+			fmt.Printf("\nIssue %d:\n", i)
+			titleStr := fmt.Sprintf(item["title"].(string))
+			descriptionStr := fmt.Sprintf(item["description"].(string))
+			repo := "https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues"
+			// isOpen := fmt.Sprintf(item["state"].(string))
+			// if (strings.TrimRight(string(titleStr), "\n") == title) && isOpen == "open" {
+			// 	break
+			// }
+			// validate if the requiered GitHub issue is not exists when GitHub issues are empty or not
+			// if GitHubIssues.TotalCount == 0 || i == GitHubIssues.TotalCount {
+			annotationValue, err := r.createGithubIssue(titleStr, descriptionStr, repo, accessToken)
+			if annotationValue == "" {
+				fmt.Printf("annotation value is empty string something went wrong")
+				return ctrl.Result{}, err
+			}
+			annotationKey := "github-issue.kubebuilder.io/issue-number"
+
+			if err := r.UpdateGithubIssueAnnotation(ctx, req, annotationKey, annotationValue); err != nil {
+				// Handle error, potentially requeue
+				return ctrl.Result{}, err
+			}
+			log.Info("Reconciling createGithubIssue")
+		}
+
 	}
 
 	// Fetch the GithubIssue instance
@@ -229,7 +264,6 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 		annotationKey := "github-issue.kubebuilder.io/issue-number"
-		// annotationValue := "5555" // Current timestamp
 
 		if err := r.UpdateGithubIssueAnnotation(ctx, req, annotationKey, annotationValue); err != nil {
 			// Handle error, potentially requeue
@@ -280,6 +314,43 @@ func (r *GithubIssueReconciler) closeGithubIssue(title string, description strin
 
 	return ctrl.Result{}, nil
 }
+
+// Function to get the value of a specific annotation from a GithubIssue CR
+// It returns the annotation value, a boolean indicating if the annotation was found, and an error.
+// func (r *GithubIssueReconciler) GetGithubIssueAnnotationValue(
+// 	ctx context.Context,
+// 	req ctrl.Request,
+// 	annotationKey string,
+// ) (string, bool, error) {
+// 	logger := log.FromContext(ctx).WithValues("githubissue", req.namespacedName, "annotationKey", annotationKey)
+
+// 	// 1. Get the GithubIssue CR
+// 	githubIssue := &trainingv1alpha1.GithubIssue{}
+// 	if err := r.Client.Get(ctx, req.namespacedName, githubIssue); err != nil {
+// 		if apiErrors.IsNotFound(err) {
+// 			logger.Info("GithubIssue not found, cannot get annotation.")
+// 			return "", false, nil // Or return error if this is unexpected
+// 		}
+// 		logger.Error(err, "Failed to get GithubIssue to read annotation")
+// 		return "", false, err
+// 	}
+
+// 	// 2. Check if the Annotations map exists (it might be nil)
+// 	if githubIssue.ObjectMeta.Annotations == nil {
+// 		logger.Info("Annotations map is nil, annotation not found.")
+// 		return "", false, nil
+// 	}
+
+// 	// 3. Access the specific annotation value from the map
+// 	annotationValue, found := githubIssue.ObjectMeta.Annotations[annotationKey]
+// 	if !found {
+// 		logger.Info("Annotation not found in map.")
+// 		return "", false, nil
+// 	}
+
+// 	logger.Info("Successfully retrieved annotation value.", "value", annotationValue)
+// 	return annotationValue, true, nil
+// }
 
 // Function to add or update an annotation on a GithubIssue CR
 func (r *GithubIssueReconciler) UpdateGithubIssueAnnotation(
@@ -397,8 +468,6 @@ func (r *GithubIssueReconciler) createGithubIssue(title string, description stri
 	_, numberStr, err := r.extractIssueNumberFromString(urlString)
 	if err != nil {
 		fmt.Printf("Error unmarshaling JSON: %v\n", err)
-		// You might want to print bodyBytes here to see what was received if it's not valid JSON
-		// fmt.Printf("Raw response: %s\n", string(bodyBytes))
 		return "", err
 	}
 
@@ -444,9 +513,6 @@ func (r *GithubIssueReconciler) getGithubIssueCountCR(ctx context.Context, names
 		logger.Info("Listing GithubIssues across all namespaces")
 		// No namespace option needed, or explicitly use client.InNamespace("")
 	}
-
-	// Optionally add label selectors:
-	// listOpts = append(listOpts, client.MatchingLabels{"repo": "owner/repo-name"})
 
 	// 3. Call the List method using the controller's client
 	err := r.Client.List(ctx, githubIssueList, listOpts...)
@@ -494,12 +560,56 @@ func (r *GithubIssueReconciler) fetchOpenGitHubIssues(accessToken string) ([]byt
 		return nil, fmt.Errorf("error reading response: %w", err)
 	}
 
-	// // Store the output in a string variable
-	// responseBodyString := string(body)
+	return body, nil
+}
 
-	// // Now you can use responseBodyString
-	// fmt.Println("Response Body Fetch:")
-	// fmt.Println(responseBodyString)
+// fetchOpenGitHubIssues reads the token, sends the request, and returns the response body
+func (r *GithubIssueReconciler) fetchOpenGitHubIssuesInLastMin(accessToken string) ([]byte, error) {
+
+	// 1. Get the current time
+	now := time.Now()
+	fmt.Printf("Current time: %s\n", now.Format("2006-01-02 15:04:05 MST")) // MST will show local timezone
+
+	// 2. Subtract one minute from the current time
+	oneMinuteAgo := now.Add(-1 * time.Minute)
+	// Or, equivalently:
+	// oneMinuteAgo := now.Add(time.Duration(-1) * time.Minute)
+
+	fmt.Printf("Time one minute ago (local): %s\n", oneMinuteAgo.Format("2006-01-02 15:04:05 MST"))
+
+	// 3. If you need it in UTC and a specific format (e.g., ISO 8601 for APIs)
+	oneMinuteAgoUTC := oneMinuteAgo.UTC()
+	// time.RFC3339 is "2006-01-02T15:04:05Z07:00". For a literal 'Z' for UTC:
+	formattedUTC := oneMinuteAgoUTC.Format("2006-01-02T15:04:05Z")
+
+	// Trim spaces and newlines from the token
+	tokenStr := strings.TrimSpace(accessToken)
+	url := fmt.Sprintf("https://api.github.com/search/issues --data-urlencode 'q=repo:Shai1-Levi/githubissues-operator type:issue created:>=%s", formattedUTC)
+
+	// Create a new HTTP request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Add("Authorization", "token "+tokenStr)
+	req.Header.Add("Accept", "application/vnd.github.v3+json")
+	req.Header.Add("X-GitHub-Api-Version", "2022-11-28")
+
+	// Send request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error sending request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response: %w", err)
+	}
 
 	return body, nil
 }
