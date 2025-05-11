@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -28,7 +27,6 @@ import (
 	trainingv1alpha1 "Shai1-Levi/githubissues-operator.git/api/v1alpha1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
 
 	"bytes"
 	"encoding/json"
@@ -67,36 +65,14 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Reconcile requeue results
 	emptyResult := ctrl.Result{}
 
-	accessToken := os.Getenv("SECRET_Token") // Read the environment variable
-
-	if accessToken == "" {
-		fmt.Println("SECRET_Token is not set")
-		return ctrl.Result{}, nil
-	}
-
-	// Fetch issues from GitHub
-	body, err := r.fetchGitHubIssues(accessToken)
-	if err != nil {
-		log.Info("Failed to fetch GitHub issues")
-		return ctrl.Result{}, nil
-	}
-
-	// Define a generic map for GitHubIssues
-	var GitHubIssues []map[string]interface{}
-
-	// Parse the JSON
-	err = json.Unmarshal(body, &GitHubIssues)
-	if err != nil {
-		log.Info("err\n")
-	}
-
 	// Fetch the GithubIssue instance
 	ghi := &trainingv1alpha1.GithubIssue{}
 	if err := r.Get(ctx, req.NamespacedName, ghi); err != nil {
 		if apiErrors.IsNotFound(err) {
-			// FenceAgentsRemediation CR was not found, and it could have been deleted after reconcile request.
+			// GitHubIssue CR was not found, and it could have been deleted after reconcile request.
 			// Return and don't requeue
-			log.Info("GithubIssue CR was not found", "CR Name", req.Name, "CR Namespace", req.Namespace)
+			logStr := fmt.Sprintf("GithubIssue CR was not found, CR Name %s CR Namespace %s", req.Name, req.Namespace)
+			log.Error(err, logStr)
 			return emptyResult, nil
 		}
 		log.Error(err, "Failed to get GithubIssue CR")
@@ -116,56 +92,87 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// name of our custom finalizer
 	myFinalizerName := "github-issue.kubebuilder.io/finalizer"
 
+	if !ghi.ObjectMeta.DeletionTimestamp.IsZero() && !controllerutil.ContainsFinalizer(ghi, myFinalizerName) {
+		// When CR doesn't include a finalizer and the CR deletionTimestamp exists
+		// then we can skip update, since it will be removed soon.
+		return emptyResult, nil
+	}
+
 	// examine DeletionTimestamp to determine if object is under deletion
-	if ghi.ObjectMeta.DeletionTimestamp.IsZero() {
+	if ghi.ObjectMeta.DeletionTimestamp.IsZero() && !controllerutil.ContainsFinalizer(ghi, myFinalizerName) {
 		// The object is not being deleted, so if it does not have our finalizer,
 		// then let's add the finalizer and update the object. This is equivalent
 		// to registering our finalizer.
-		if !controllerutil.ContainsFinalizer(ghi, myFinalizerName) {
-			controllerutil.AddFinalizer(ghi, myFinalizerName)
-			log.Info("AddingFinalizer")
-			if err := r.Update(ctx, ghi); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-	} else {
-		// The object is being deleted
-		if controllerutil.ContainsFinalizer(ghi, myFinalizerName) {
-			// our finalizer is present, so let's handle any external dependency
-			title := ghi.Spec.Title
-			description := ghi.Spec.Description
 
-			var i int
-			var url string
-			url = ""
-			// Print all keys and values dynamically
-			for i = 0; i < len(GitHubIssues); i++ {
-				item := GitHubIssues[i]
-				fmt.Printf("\nIssue %d:\n", i)
-				titleStr := fmt.Sprintf(item["title"].(string))
-				isOpen := fmt.Sprintf(item["state"].(string))
-				url = fmt.Sprintf(item["url"].(string))
-				if (strings.TrimRight(string(titleStr), "\n") == title) && isOpen == "open" {
-					if _, err := r.closeGithubIssue(title, description, url, accessToken); err != nil {
-						// if fail to delete the external dependency here, return with error
-						// so that it can be retried.
-						return ctrl.Result{}, err
-					}
-					break
+		controllerutil.AddFinalizer(ghi, myFinalizerName)
+		log.Info("AddingFinalizer")
+		if err := r.Update(ctx, ghi); err != nil {
+			return emptyResult, err
+		}
+		return emptyResult, nil
+	}
+
+	accessToken := os.Getenv("SECRET_Token") // Read the environment variable
+
+	if accessToken == "" {
+		log.Info("SECRET_Token is not set")
+		return emptyResult, nil
+	}
+
+	// Fetch issues from GitHub
+	body, err := r.fetchGitHubIssues(accessToken)
+	if err != nil {
+		log.Error(nil, "Failed to fetch GitHub issues")
+		return emptyResult, nil
+	}
+
+	// Define a generic map for GitHubIssues
+	var gitHubIssues []map[string]interface{}
+
+	// Parse the JSON
+	err = json.Unmarshal(body, &gitHubIssues)
+	if err != nil {
+		log.Error(nil, "err\n")
+	}
+
+	// The object is being deleted
+	if !ghi.ObjectMeta.DeletionTimestamp.IsZero() && controllerutil.ContainsFinalizer(ghi, myFinalizerName) {
+		// Delete CR only when a finalizer and DeletionTimestamp are set
+		// our finalizer is present, handle any external dependency
+
+		title := ghi.Spec.Title
+		description := ghi.Spec.Description
+
+		var i int
+		var url string
+		url = ""
+		// Print all keys and values dynamically
+		for i = 0; i < len(gitHubIssues); i++ {
+			item := gitHubIssues[i]
+			fmt.Printf("\nIssue %d:\n", i)
+			titleStr := fmt.Sprintf(item["title"].(string))
+			isOpen := fmt.Sprintf(item["state"].(string))
+			url = fmt.Sprintf(item["url"].(string))
+			if (strings.TrimRight(string(titleStr), "\n") == title) && isOpen == "open" {
+				if _, err := r.closeGithubIssue(title, description, url, accessToken); err != nil {
+					// if fail to delete the external dependency here, return with error
+					// so that it can be retried.
+					return emptyResult, err
 				}
-			}
-
-			log.Info("RemoveFinalizer")
-
-			// remove our finalizer from the list and update it.
-			controllerutil.RemoveFinalizer(ghi, myFinalizerName)
-			if err := r.Update(ctx, ghi); err != nil {
-				return ctrl.Result{}, err
+				break
 			}
 		}
 
+		log.Info("Trying RemoveFinalizer")
+
+		// remove our finalizer from the list and update it.
+		controllerutil.RemoveFinalizer(ghi, myFinalizerName)
+		if err := r.Update(ctx, ghi); err != nil {
+			return emptyResult, err
+		}
+		log.Info("RemoveFinalizer")
 		// Stop reconciliation as the item is being deleted
-		return ctrl.Result{RequeueAfter: time.Minute * 1}, nil
+		return emptyResult, nil
 	}
 
 	// Extract `spec` field from cr
@@ -174,9 +181,9 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	repo := ghi.Spec.Repo
 
 	var i int
-
-	for i = 0; i < len(GitHubIssues); i++ {
-		item := GitHubIssues[i]
+	fmt.Printf("number %d", len(gitHubIssues))
+	for i = 0; i < len(gitHubIssues); i++ {
+		item := gitHubIssues[i]
 		fmt.Printf("\nIssue %d:\n", i)
 		titleStr := fmt.Sprintf(item["title"].(string))
 		isOpen := fmt.Sprintf(item["state"].(string))
@@ -185,13 +192,14 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
+	fmt.Printf("index: %d", i)
 	// validate if the requiered GitHub issue is not exists when GitHub issues are empty or not
-	if len(GitHubIssues) == 0 || i == len(GitHubIssues) {
+	if len(gitHubIssues) == 0 || i == len(gitHubIssues) {
 		r.createGithubIssue(title, description, repo, accessToken)
 		log.Info("Reconciling createGithubIssue")
 	}
 
-	return ctrl.Result{RequeueAfter: time.Minute * 1}, nil
+	return emptyResult, nil
 }
 
 func (r *GithubIssueReconciler) closeGithubIssue(title string, description string, url string, accessToken string) (ctrl.Result, error) {
@@ -280,7 +288,7 @@ func (r *GithubIssueReconciler) fetchGitHubIssues(accessToken string) ([]byte, e
 
 	// Trim spaces and newlines from the token
 	tokenStr := strings.TrimSpace(accessToken)
-	url := "https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues"
+	url := "https://api.github.com/search/issues?q=repo:Shai1-Levi/githubissues-operator+type:issue+state:open"
 
 	// Create a new HTTP request
 	req, err := http.NewRequest("GET", url, nil)
