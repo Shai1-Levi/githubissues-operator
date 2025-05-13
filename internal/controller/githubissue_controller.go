@@ -89,16 +89,6 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return emptyResult, err
 	}
 
-	// // At the end of each Reconcile we try to update CR's status
-	// defer func() {
-	// 	if updateErr := r.updateStatus(ctx, ghi); updateErr != nil {
-	// 		if apiErrors.IsConflict(updateErr) {
-	// 			log.Info("Conflict has occurred on updating the CR status")
-	// 		}
-	// 		finalErr = utilErrors.NewAggregate([]error{updateErr, finalErr})
-	// 	}
-	// }()
-
 	// name of our custom finalizer
 	myFinalizerName := "github-issue.kubebuilder.io/finalizer"
 
@@ -151,7 +141,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// Delete CR only when a finalizer and DeletionTimestamp are set
 		// our finalizer is present, handle any external dependency
 
-		if _, err := r.sentCloseGithubIssue(ghi, accessToken); err != nil {
+		if err := r.closeGithubIssueFromCR(ghi, accessToken); err != nil {
 			// if fail to delete the external dependency here, return with error
 			// so that it can be retried.
 			return emptyResult, err
@@ -201,7 +191,10 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				fmt.Printf("Error unmarshaling JSON: %v", err)
 			}
 			if result["title"] != title || result["body"] != description {
-				needUpdate := r.updateGitHubIssue(title, description, repo, value, accessToken)
+				needUpdate, err := r.updateGitHubIssue(title, description, repo, value, accessToken)
+				if err != nil {
+					return emptyResult, err
+				}
 				if !needUpdate {
 					return emptyResult, nil
 				}
@@ -232,7 +225,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 }
 
-func (r *GithubIssueReconciler) updateGitHubIssue(title string, description string, repo string, issueNumber string, accessToken string) bool {
+func (r *GithubIssueReconciler) updateGitHubIssue(title string, description string, repo string, issueNumber string, accessToken string) (bool, error) {
 
 	fmt.Print(repo)
 
@@ -240,11 +233,10 @@ func (r *GithubIssueReconciler) updateGitHubIssue(title string, description stri
 
 	ans, e := r.updateGitHubIssuefileds(title, description, url, accessToken)
 	if e != nil {
-		fmt.Print(e)
-		fmt.Printf("Failed to parase response to JSon")
+		return false, fmt.Errorf("failed to update issue fields: %w", e)
 	}
 
-	return ans
+	return ans, nil
 
 }
 
@@ -313,7 +305,7 @@ func (r *GithubIssueReconciler) UpdateGithubIssueAnnotation(
 	return nil
 }
 
-func (r *GithubIssueReconciler) sentCloseGithubIssue(ghi *trainingv1alpha1.GithubIssue, accessToken string) (ctrl.Result, error) {
+func (r *GithubIssueReconciler) closeGithubIssueFromCR(ghi *trainingv1alpha1.GithubIssue, accessToken string) error {
 
 	title := ghi.Spec.Title
 	description := ghi.Spec.Description
@@ -332,11 +324,11 @@ func (r *GithubIssueReconciler) sentCloseGithubIssue(ghi *trainingv1alpha1.Githu
 		if _, err := r.closeGithubIssue(title, description, repo, annotationValue, accessToken); err != nil {
 			// if fail to delete the external dependency here, return with error
 			// so that it can be retried.
-			return ctrl.Result{}, err
+			return err
 		}
 	}
 
-	return ctrl.Result{}, nil
+	return nil
 }
 
 func (r *GithubIssueReconciler) updateGitHubIssuefileds(title string, description string, repo string, accessToken string) (bool, error) {
@@ -344,7 +336,23 @@ func (r *GithubIssueReconciler) updateGitHubIssuefileds(title string, descriptio
 	tokenStr := strings.TrimSpace(accessToken)
 
 	// JSON payload for the issue
-	jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"open\"}", title, description)
+	// jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"open\"}", title, description)
+	type IssuePayload struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+		State string `json:"state"`
+	}
+
+	payload := IssuePayload{
+		Title: title,
+		Body:  description,
+		State: "open",
+	}
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return false, fmt.Errorf("error marshaling JSON: %w", err)
+	}
+	jsonStr := string(jsonData)
 
 	// Create a new HTTP request
 	req, err := http.NewRequest("PATCH", repo, bytes.NewBuffer([]byte(jsonStr)))
@@ -371,7 +379,7 @@ func (r *GithubIssueReconciler) updateGitHubIssuefileds(title string, descriptio
 	defer resp.Body.Close()
 
 	// Check response status
-	if resp.StatusCode != http.StatusCreated {
+	if resp.StatusCode != http.StatusOK {
 		return false, fmt.Errorf("GitHub API returned status: %d", resp.StatusCode)
 	}
 
@@ -384,7 +392,23 @@ func (r *GithubIssueReconciler) closeGithubIssue(title string, description strin
 	tokenStr := strings.TrimSpace(accessToken)
 
 	// JSON payload for the issue
-	jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"closed\"}", title, description)
+	// jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"closed\"}", title, description)
+	type IssuePayload struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+		State string `json:"state"`
+	}
+
+	payload := IssuePayload{
+		Title: title,
+		Body:  description,
+		State: "closed",
+	}
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("error marshaling JSON: %w", err)
+	}
+	jsonStr := string(jsonData)
 
 	repo := url + "/" + issueNumber
 
@@ -410,7 +434,15 @@ func (r *GithubIssueReconciler) closeGithubIssue(title string, description strin
 		fmt.Printf("error reading token: \n")
 		return ctrl.Result{}, fmt.Errorf("error sending request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			fmt.Printf("error closing response body: %v\n", err)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return ctrl.Result{}, fmt.Errorf("GitHub API returned status: %d", resp.StatusCode)
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -421,7 +453,23 @@ func (r *GithubIssueReconciler) createGithubIssue(title string, description stri
 	tokenStr := strings.TrimSpace(accessToken)
 
 	// JSON payload for the issue
-	jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"open\"}", title, description)
+	// jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"open\"}", title, description)
+	type IssuePayload struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+		State string `json:"state"`
+	}
+
+	payload := IssuePayload{
+		Title: title,
+		Body:  description,
+		State: "open",
+	}
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling JSON: %w", err)
+	}
+	jsonStr := string(jsonData)
 
 	// Create a new HTTP request
 	req, err := http.NewRequest("POST", repo, bytes.NewBuffer([]byte(jsonStr)))
@@ -551,10 +599,6 @@ func (r *GithubIssueReconciler) fetchGitHubIssuesbyIssueNumber(issueNumber strin
 	tokenStr := strings.TrimSpace(accessToken)
 	url := fmt.Sprintf("https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues/%s", issueNumber)
 
-	fmt.Printf("\nURL: ")
-	fmt.Print(url)
-	fmt.Printf("\n")
-
 	// Create a new HTTP request
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -578,15 +622,6 @@ func (r *GithubIssueReconciler) fetchGitHubIssuesbyIssueNumber(issueNumber strin
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("error reading response: %w", err)
-	}
-
-	// Declare a map to hold the unmarshaled JSON
-	var result map[string]interface{}
-
-	// Unmarshal the JSON data into the map
-	err = json.Unmarshal(body, &result)
-	if err != nil {
-		fmt.Printf("Error unmarshaling JSON: %v", err)
 	}
 
 	return body, nil
