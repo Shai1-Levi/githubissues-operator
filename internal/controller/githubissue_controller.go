@@ -136,11 +136,6 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return emptyResult, nil
 	}
 
-	// Define a generic map for GitHubIssues
-	// var gitHubIssues []map[string]interface{}
-
-	fmt.Printf("HEREEEEEEEE")
-
 	// 1. Create an instance of our struct
 	var gitHubIssues GitHubSearchResponse
 
@@ -156,7 +151,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// Delete CR only when a finalizer and DeletionTimestamp are set
 		// our finalizer is present, handle any external dependency
 
-		if _, err := r.sentCloseGithubIssue(ghi, gitHubIssues, accessToken); err != nil {
+		if _, err := r.sentCloseGithubIssue(ghi, accessToken); err != nil {
 			// if fail to delete the external dependency here, return with error
 			// so that it can be retried.
 			return emptyResult, err
@@ -218,33 +213,17 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	} else { // No anttotaion filed, hence CR is on creation serp
 		log.Info("CR does not have the annotation", "key", annotationKey)
-		var i int
-		fmt.Printf("number %d", len(gitHubIssues.Items))
-		for i = 0; i < len(gitHubIssues.Items); i++ {
-			item := gitHubIssues.Items[i]
-			fmt.Printf("\nIssue %d:\n", i)
-			titleStr := fmt.Sprintf(item["title"].(string))
-			isOpen := fmt.Sprintf(item["state"].(string))
-			if (strings.TrimRight(string(titleStr), "\n") == title) && isOpen == "open" {
-				break
-			}
+
+		annotationValue, err := r.createGithubIssue(title, description, repo, accessToken)
+		if annotationValue == "" {
+			fmt.Printf("annotation value is empty string something went wrong")
+			return emptyResult, err
 		}
 
-		fmt.Printf("index: %d", i)
-		// validate if the requiered GitHub issue is not exists when GitHub issues are empty or not
-		if len(gitHubIssues.Items) == 0 || i == len(gitHubIssues.Items) {
-			annotationValue, err := r.createGithubIssue(title, description, repo, accessToken)
-			if annotationValue == "" {
-				fmt.Printf("annotation value is empty string something went wrong")
-				return emptyResult, err
-			}
-
-			if err := r.UpdateGithubIssueAnnotation(ctx, req, annotationKey, annotationValue); err != nil {
-				// Handle error, potentially requeue
-				return emptyResult, err
-			}
-			log.Info("Reconciling createGithubIssue")
+		if err := r.UpdateGithubIssueAnnotation(ctx, req, annotationKey, annotationValue); err != nil {
+			return emptyResult, err
 		}
+		log.Info("Reconciling createGithubIssue")
 
 		return emptyResult, nil
 	}
@@ -255,31 +234,9 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 func (r *GithubIssueReconciler) updateGitHubIssue(title string, description string, repo string, issueNumber string, accessToken string) bool {
 
-	// // Declare a map to hold the unmarshaled JSON
-	// var result map[string]interface{}
-
-	// // Unmarshal the JSON data into the map
-	// err := json.Unmarshal(ghiBySerial, &result)
-	// if err != nil {
-	// 	fmt.Printf("Error unmarshaling JSON: %v", err)
-	// }
-
-	// fmt.Print("result")
-	// fmt.Print(result)
 	fmt.Print(repo)
-	// title := result["title"].(string)
-	// description := result["body"].(string)
-	// url := result["html_url"].(string)
+
 	url := fmt.Sprintf("https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues/%s", issueNumber)
-
-	fmt.Printf("titleeeee SHai\n")
-	fmt.Print(title)
-
-	fmt.Printf("descriptionnnnnn SHAI\n")
-	fmt.Print(description)
-
-	fmt.Printf("\n urllll SHAI\n")
-	fmt.Print(url)
 
 	ans, e := r.updateGitHubIssuefileds(title, description, url, accessToken)
 	if e != nil {
@@ -288,7 +245,6 @@ func (r *GithubIssueReconciler) updateGitHubIssue(title string, description stri
 	}
 
 	return ans
-	// return true
 
 }
 
@@ -357,30 +313,29 @@ func (r *GithubIssueReconciler) UpdateGithubIssueAnnotation(
 	return nil
 }
 
-func (r *GithubIssueReconciler) sentCloseGithubIssue(ghi *trainingv1alpha1.GithubIssue, gitHubIssues GitHubSearchResponse, accessToken string) (ctrl.Result, error) {
+func (r *GithubIssueReconciler) sentCloseGithubIssue(ghi *trainingv1alpha1.GithubIssue, accessToken string) (ctrl.Result, error) {
 
 	title := ghi.Spec.Title
 	description := ghi.Spec.Description
+	repo := ghi.Spec.Repo
 
-	var i int
-	var url string
-	url = ""
-	// Print all keys and values dynamically
-	for i = 0; i < len(gitHubIssues.Items); i++ {
-		item := gitHubIssues.Items[i]
-		fmt.Printf("\nIssue %d:\n", i)
-		titleStr := fmt.Sprintf(item["title"].(string))
-		isOpen := fmt.Sprintf(item["state"].(string))
-		url = fmt.Sprintf(item["url"].(string))
-		if (strings.TrimRight(string(titleStr), "\n") == title) && isOpen == "open" {
-			if _, err := r.closeGithubIssue(title, description, url, accessToken); err != nil {
-				// if fail to delete the external dependency here, return with error
-				// so that it can be retried.
-				return ctrl.Result{}, err
-			}
-			break
+	annotationKey := "github-issue.kubebuilder.io/issue-number"
+
+	// 3. (Optional) Get the value of the annotation
+	annotationValue, _ := r.getSpecificAnnotationValue(ghi, annotationKey)
+	fmt.Printf("Annotation value key %s value %s \n", annotationKey, annotationValue)
+
+	// Now you can act based on the presence or value of the annotation
+	if annotationValue != "" {
+		// Do something specific
+		fmt.Printf("Annotation value is true, performing action...")
+		if _, err := r.closeGithubIssue(title, description, repo, annotationValue, accessToken); err != nil {
+			// if fail to delete the external dependency here, return with error
+			// so that it can be retried.
+			return ctrl.Result{}, err
 		}
 	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -423,7 +378,7 @@ func (r *GithubIssueReconciler) updateGitHubIssuefileds(title string, descriptio
 	return true, nil
 }
 
-func (r *GithubIssueReconciler) closeGithubIssue(title string, description string, url string, accessToken string) (ctrl.Result, error) {
+func (r *GithubIssueReconciler) closeGithubIssue(title string, description string, url string, issueNumber string, accessToken string) (ctrl.Result, error) {
 
 	// Trim spaces and newlines from the token
 	tokenStr := strings.TrimSpace(accessToken)
@@ -431,8 +386,10 @@ func (r *GithubIssueReconciler) closeGithubIssue(title string, description strin
 	// JSON payload for the issue
 	jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"closed\"}", title, description)
 
+	repo := url + "/" + issueNumber
+
 	// Create a new HTTP request
-	req, err := http.NewRequest("PATCH", url, bytes.NewBuffer([]byte(jsonStr)))
+	req, err := http.NewRequest("PATCH", repo, bytes.NewBuffer([]byte(jsonStr)))
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("error creating request: %w", err)
 	}
@@ -454,11 +411,6 @@ func (r *GithubIssueReconciler) closeGithubIssue(title string, description strin
 		return ctrl.Result{}, fmt.Errorf("error sending request: %w", err)
 	}
 	defer resp.Body.Close()
-
-	// Check response status
-	if resp.StatusCode != http.StatusCreated {
-		return ctrl.Result{}, fmt.Errorf("GitHub API returned status: %d", resp.StatusCode)
-	}
 
 	return ctrl.Result{}, nil
 }
@@ -636,10 +588,6 @@ func (r *GithubIssueReconciler) fetchGitHubIssuesbyIssueNumber(issueNumber strin
 	if err != nil {
 		fmt.Printf("Error unmarshaling JSON: %v", err)
 	}
-
-	fmt.Print("\n result")
-	fmt.Print(result)
-	fmt.Printf("\n")
 
 	return body, nil
 }
