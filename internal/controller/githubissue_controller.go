@@ -18,7 +18,9 @@ package controller
 
 import (
 	"context"
+	"slices"
 	"strconv"
+	"time"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -37,6 +39,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
 	"os"
 	"strings"
 )
@@ -81,6 +84,8 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Reconcile requeue results
 	emptyResult := ctrl.Result{}
 
+	accessToken := os.Getenv("SECRET_Token") // Read the environment variable
+
 	// Fetch the GithubIssue instance
 	ghi := &trainingv1alpha1.GithubIssue{}
 	if err := r.Get(ctx, req.NamespacedName, ghi); err != nil {
@@ -89,7 +94,9 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// Return and don't requeue
 			logStr := fmt.Sprintf("GithubIssue CR was not found, CR Name %s CR Namespace %s", req.Name, req.Namespace)
 			log.Info(logStr)
-			return emptyResult, nil
+			r.syncCRwithGitHub(ctx, accessToken)
+			fmt.Printf("SHAIIIIII")
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 		log.Error(err, "Failed to get GithubIssue CR")
 		return emptyResult, err
@@ -114,8 +121,6 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return emptyResult, nil
 	}
-
-	accessToken := os.Getenv("SECRET_Token") // Read the environment variable
 
 	if accessToken == "" {
 		log.Info("SECRET_Token is not set")
@@ -171,13 +176,12 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if r.hasSpecificAnnotation(ghi) {
 		fmt.Printf("CR has the annotation key %s \n", annotationKey)
 
-		// 3. (Optional) Get the value of the annotation
 		value, _ := r.getSpecificAnnotationValue(ghi)
+
 		fmt.Printf("Annotation value key %s value %s \n", annotationKey, value)
 
 		// Now you can act based on the presence or value of the annotation
 		if value != "" {
-			// Do something specific
 			log.Info("Annotation value is true, performing action...")
 			ghiBySerial, err := r.fetchGitHubIssuesbyIssueNumber(value, repo, accessToken)
 			if err != nil {
@@ -207,7 +211,9 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		}
 
-	} else { // No anttotaion filed, hence CR is on creation step
+
+	} else {
+		// No anttotaion filed, hence CR is on creation step
 		log.Info("CR does not have the annotation", "key", annotationKey)
 
 		annotationValue, err := r.createGithubIssue(title, description, repo, accessToken)
@@ -224,8 +230,84 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return emptyResult, nil
 	}
 
-	return emptyResult, nil
+	fmt.Printf("SHAIIII!!!!")
 
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+
+}
+
+func (r *GithubIssueReconciler) getCRserialNumberList(ctx context.Context, accessToken string) ([]string, error) {
+	// logger.Info("Attempting to list all MyCustomResource instances in the cluster/namespace...")
+
+	allInstancesList := &trainingv1alpha1.GithubIssueList{} // IMPORTANT: Use your actual CRD List Go type
+
+	// Define list options.
+	// To list across all namespaces (if your controller is cluster-scoped and has permissions):
+	listOpts := []client.ListOption{}
+	// To list within a specific namespace (e.g., the namespace of the CR that triggered this reconcile,
+	// or if the controller is namespace-scoped):
+	// listOpts := []client.ListOption{client.InNamespace(req.Namespace)} // or instance.Namespace
+
+	var listIssueNumber []string
+
+	if err := r.List(ctx, allInstancesList, listOpts...); err != nil {
+		// logger.Error(err, "Failed to list MyCustomResources")
+		// Depending on the error, you might want to requeue or handle it differently
+		return listIssueNumber, err
+	}
+
+	for _, cr := range allInstancesList.Items {
+		crAnnotations := cr.GetAnnotations()
+		issueNumer, exists := crAnnotations[annotationKey1]
+		if exists {
+			listIssueNumber = append(listIssueNumber, issueNumer)
+		}
+	}
+	return listIssueNumber, nil
+
+}
+
+func (r *GithubIssueReconciler) syncCRwithGitHub(ctx context.Context, accessToken string) (bool, error) {
+
+	// Fetch issues from GitHub
+	body, err := r.fetchGitHubIssues(accessToken)
+	if err != nil {
+		return false, fmt.Errorf("failed to fetch GitHub issues")
+	}
+
+	// 1. Create an instance of our struct
+	var gitHubIssues GitHubSearchResponse
+
+	// Parse the JSON
+	err = json.Unmarshal(body, &gitHubIssues)
+	if err != nil {
+		fmt.Print(err)
+		return false, fmt.Errorf("failed to parase response to JSon")
+	}
+
+	fmt.Printf("\n body \n")
+	fmt.Print(gitHubIssues)
+
+	listIssueNumber, _ := r.getCRserialNumberList(ctx, accessToken)
+
+	var i int
+
+	for i = 0; i < len(gitHubIssues.Items); i++ {
+		item := gitHubIssues.Items[i]
+		fmt.Printf("\n items: \n")
+		fmt.Print(item)
+		fmt.Printf("\nIssue %d:\n", i)
+		number := fmt.Sprintf(item["number"].(string))
+		numberList := []string{number}
+		title := fmt.Sprintf(item["title"].(string))
+		description := fmt.Sprintf(item["body"].(string))
+		repo := fmt.Sprintf(item["body"].(string))
+		if !slices.Equal(listIssueNumber, numberList) {
+			r.createGithubIssue(title, description, repo, accessToken)
+		}
+	}
+
+	return true, nil
 }
 
 func (r *GithubIssueReconciler) updateGitHubIssue(title string, description string, repo string, issueNumber string, accessToken string) (bool, error) {
