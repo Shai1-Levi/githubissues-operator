@@ -92,7 +92,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return emptyResult, nil
 		}
 		log.Error(err, "Failed to get GithubIssue CR")
-		return ctrl.Result{RequeueAfter: time.Minute}, err
+		return emptyResult, err
 	}
 
 	if !ghi.ObjectMeta.DeletionTimestamp.IsZero() && !controllerutil.ContainsFinalizer(ghi, myFinalizerName) {
