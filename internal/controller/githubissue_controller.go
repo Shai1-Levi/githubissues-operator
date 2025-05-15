@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -38,6 +39,11 @@ import (
 	"net/http"
 	"os"
 	"strings"
+)
+
+const (
+	annotationKey   = "github-issue.kubebuilder.io/issue-number"
+	myFinalizerName = "github-issue.kubebuilder.io/finalizer"
 )
 
 // GithubIssueReconciler reconciles a GithubIssue object
@@ -89,9 +95,6 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return emptyResult, err
 	}
 
-	// name of our custom finalizer
-	myFinalizerName := "github-issue.kubebuilder.io/finalizer"
-
 	if !ghi.ObjectMeta.DeletionTimestamp.IsZero() && !controllerutil.ContainsFinalizer(ghi, myFinalizerName) {
 		// When CR doesn't include a finalizer and the CR deletionTimestamp exists
 		// then we can skip update, since it will be removed soon.
@@ -119,14 +122,20 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return emptyResult, nil
 	}
 
+	// Extract `spec` field from cr
+	title := ghi.Spec.Title
+	description := ghi.Spec.Description
+	repo := string(ghi.Spec.Repo) + "/issues"
+
+	fmt.Printf("Title %s Description %s Repo %s \n", title, description, repo)
+
 	// Fetch issues from GitHub
-	body, err := r.fetchGitHubIssues(accessToken)
+	body, err := r.fetchGitHubIssues(ghi.Spec.Repo, accessToken)
 	if err != nil {
 		log.Info("Failed to fetch GitHub issues")
 		return emptyResult, nil
 	}
 
-	// 1. Create an instance of our struct
 	var gitHubIssues GitHubSearchResponse
 
 	// Parse the JSON
@@ -159,24 +168,18 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return emptyResult, nil
 	}
 
-	// Extract `spec` field from cr
-	title := ghi.Spec.Title
-	description := ghi.Spec.Description
-	repo := ghi.Spec.Repo
-	annotationKey := "github-issue.kubebuilder.io/issue-number"
-
-	if r.hasSpecificAnnotation(ghi, annotationKey) {
+	if r.hasSpecificAnnotation(ghi) {
 		fmt.Printf("CR has the annotation key %s \n", annotationKey)
 
 		// 3. (Optional) Get the value of the annotation
-		value, _ := r.getSpecificAnnotationValue(ghi, annotationKey)
+		value, _ := r.getSpecificAnnotationValue(ghi)
 		fmt.Printf("Annotation value key %s value %s \n", annotationKey, value)
 
 		// Now you can act based on the presence or value of the annotation
 		if value != "" {
 			// Do something specific
 			log.Info("Annotation value is true, performing action...")
-			ghiBySerial, err := r.fetchGitHubIssuesbyIssueNumber(value, accessToken)
+			ghiBySerial, err := r.fetchGitHubIssuesbyIssueNumber(value, repo, accessToken)
 			if err != nil {
 				fmt.Print(err)
 				log.Info("Failed to parase response to JSon")
@@ -200,11 +203,11 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				}
 			}
 
-			return emptyResult, nil
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
 
 		}
 
-	} else { // No anttotaion filed, hence CR is on creation serp
+	} else { // No anttotaion filed, hence CR is on creation step
 		log.Info("CR does not have the annotation", "key", annotationKey)
 
 		annotationValue, err := r.createGithubIssue(title, description, repo, accessToken)
@@ -213,7 +216,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return emptyResult, err
 		}
 
-		if err := r.UpdateGithubIssueAnnotation(ctx, req, annotationKey, annotationValue); err != nil {
+		if err := r.UpdateGithubIssueAnnotation(ctx, req, annotationValue); err != nil {
 			return emptyResult, err
 		}
 		log.Info("Reconciling createGithubIssue")
@@ -229,7 +232,8 @@ func (r *GithubIssueReconciler) updateGitHubIssue(title string, description stri
 
 	fmt.Print(repo)
 
-	url := fmt.Sprintf("https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues/%s", issueNumber)
+	// url := fmt.Sprintf("https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues/%s", issueNumber)
+	url := repo + "/" + issueNumber
 
 	ans, e := r.updateGitHubIssuefileds(title, description, url, accessToken)
 	if e != nil {
@@ -240,7 +244,7 @@ func (r *GithubIssueReconciler) updateGitHubIssue(title string, description stri
 
 }
 
-func (r *GithubIssueReconciler) hasSpecificAnnotation(obj metav1.Object, annotationKey string) bool {
+func (r *GithubIssueReconciler) hasSpecificAnnotation(obj metav1.Object) bool {
 	annotations := obj.GetAnnotations()
 	if annotations == nil {
 		return false // No annotations at all
@@ -249,7 +253,7 @@ func (r *GithubIssueReconciler) hasSpecificAnnotation(obj metav1.Object, annotat
 	return exists
 }
 
-func (r *GithubIssueReconciler) getSpecificAnnotationValue(obj metav1.Object, annotationKey string) (string, bool) {
+func (r *GithubIssueReconciler) getSpecificAnnotationValue(obj metav1.Object) (string, bool) {
 	annotations := obj.GetAnnotations()
 	if annotations == nil {
 		return "", false // No annotations at all
@@ -262,7 +266,6 @@ func (r *GithubIssueReconciler) getSpecificAnnotationValue(obj metav1.Object, an
 func (r *GithubIssueReconciler) UpdateGithubIssueAnnotation(
 	ctx context.Context,
 	req ctrl.Request,
-	annotationKey string,
 	annotationValue string,
 ) error {
 	logger := log.FromContext(ctx).WithValues("githubissue", req.NamespacedName)
@@ -309,12 +312,10 @@ func (r *GithubIssueReconciler) closeGithubIssueFromCR(ghi *trainingv1alpha1.Git
 
 	title := ghi.Spec.Title
 	description := ghi.Spec.Description
-	repo := ghi.Spec.Repo
-
-	annotationKey := "github-issue.kubebuilder.io/issue-number"
+	repo := ghi.Spec.Repo + "/issues"
 
 	// 3. (Optional) Get the value of the annotation
-	annotationValue, _ := r.getSpecificAnnotationValue(ghi, annotationKey)
+	annotationValue, _ := r.getSpecificAnnotationValue(ghi)
 	fmt.Printf("Annotation value key %s value %s \n", annotationKey, annotationValue)
 
 	// Now you can act based on the presence or value of the annotation
@@ -336,7 +337,6 @@ func (r *GithubIssueReconciler) updateGitHubIssuefileds(title string, descriptio
 	tokenStr := strings.TrimSpace(accessToken)
 
 	// JSON payload for the issue
-	// jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"open\"}", title, description)
 	type IssuePayload struct {
 		Title string `json:"title"`
 		Body  string `json:"body"`
@@ -370,7 +370,7 @@ func (r *GithubIssueReconciler) updateGitHubIssuefileds(title string, descriptio
 	req.Header.Add("X-GitHub-Api-Version", "2022-11-28")
 
 	// Create HTTP client and send request
-	client := &http.Client{}
+	client := &http.Client{Timeout: 1 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("error reading token: \n")
@@ -392,7 +392,6 @@ func (r *GithubIssueReconciler) closeGithubIssue(title string, description strin
 	tokenStr := strings.TrimSpace(accessToken)
 
 	// JSON payload for the issue
-	// jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"closed\"}", title, description)
 	type IssuePayload struct {
 		Title string `json:"title"`
 		Body  string `json:"body"`
@@ -428,7 +427,7 @@ func (r *GithubIssueReconciler) closeGithubIssue(title string, description strin
 	req.Header.Add("X-GitHub-Api-Version", "2022-11-28")
 
 	// Create HTTP client and send request
-	client := &http.Client{}
+	client := &http.Client{Timeout: 1 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("error reading token: \n")
@@ -453,7 +452,6 @@ func (r *GithubIssueReconciler) createGithubIssue(title string, description stri
 	tokenStr := strings.TrimSpace(accessToken)
 
 	// JSON payload for the issue
-	// jsonStr := fmt.Sprintf("{\"title\":\"%s\", \"body\":\"%s\", \"state\":\"open\"}", title, description)
 	type IssuePayload struct {
 		Title string `json:"title"`
 		Body  string `json:"body"`
@@ -471,6 +469,8 @@ func (r *GithubIssueReconciler) createGithubIssue(title string, description stri
 	}
 	jsonStr := string(jsonData)
 
+	// url := repo + "/issues"
+
 	// Create a new HTTP request
 	req, err := http.NewRequest("POST", repo, bytes.NewBuffer([]byte(jsonStr)))
 	if err != nil {
@@ -487,7 +487,7 @@ func (r *GithubIssueReconciler) createGithubIssue(title string, description stri
 	req.Header.Add("X-GitHub-Api-Version", "2022-11-28")
 
 	// Create HTTP client and send request
-	client := &http.Client{}
+	client := &http.Client{Timeout: 1 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("error reading token: \n")
@@ -557,12 +557,37 @@ func (r *GithubIssueReconciler) extractIssueNumberFromString(s string) (int, str
 	return number, potentialNumberStr, nil
 }
 
+func (r *GithubIssueReconciler) getStringAfterRepos(url string) (string, bool) {
+	searchText := "repos/"
+	index := strings.Index(url, searchText)
+
+	if index == -1 {
+		// "repos/" not found in the string
+		return "", false
+	}
+
+	// Calculate the starting position of the substring after "repos/"
+	startIndex := index + len(searchText)
+
+	// Ensure startIndex is within bounds (though with "repos/" it's unlikely to be an issue if found)
+	if startIndex >= len(url) {
+		// "repos/" is at the very end, so nothing comes after it
+		return "", false // Found but empty, treat as failure
+	}
+
+	return url[startIndex:], true
+}
+
 // fetchGitHubIssues reads the token, sends the request, and returns the response body
-func (r *GithubIssueReconciler) fetchGitHubIssues(accessToken string) ([]byte, error) {
+func (r *GithubIssueReconciler) fetchGitHubIssues(repo, accessToken string) ([]byte, error) {
 
 	// Trim spaces and newlines from the token
 	tokenStr := strings.TrimSpace(accessToken)
-	url := "https://api.github.com/search/issues?q=repo:Shai1-Levi/githubissues-operator+type:issue+state:open"
+	owner_repo, boolean := r.getStringAfterRepos(repo)
+	if !boolean || owner_repo == "" {
+		return nil, fmt.Errorf("failed to get owner_repo")
+	}
+	url := "https://api.github.com/search/issues?q=repo:" + owner_repo + "+type:issue+state:open"
 
 	// Create a new HTTP request
 	req, err := http.NewRequest("GET", url, nil)
@@ -576,7 +601,7 @@ func (r *GithubIssueReconciler) fetchGitHubIssues(accessToken string) ([]byte, e
 	req.Header.Add("X-GitHub-Api-Version", "2022-11-28")
 
 	// Send request
-	client := &http.Client{}
+	client := &http.Client{Timeout: 1 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request: %w", err)
@@ -593,11 +618,11 @@ func (r *GithubIssueReconciler) fetchGitHubIssues(accessToken string) ([]byte, e
 }
 
 // fetchGitHubIssues reads the token, sends the request, and returns the response body
-func (r *GithubIssueReconciler) fetchGitHubIssuesbyIssueNumber(issueNumber string, accessToken string) ([]byte, error) {
+func (r *GithubIssueReconciler) fetchGitHubIssuesbyIssueNumber(issueNumber, repo, accessToken string) ([]byte, error) {
 
 	// Trim spaces and newlines from the token
 	tokenStr := strings.TrimSpace(accessToken)
-	url := fmt.Sprintf("https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues/%s", issueNumber)
+	url := repo + "/" + issueNumber
 
 	// Create a new HTTP request
 	req, err := http.NewRequest("GET", url, nil)
@@ -611,7 +636,7 @@ func (r *GithubIssueReconciler) fetchGitHubIssuesbyIssueNumber(issueNumber strin
 	req.Header.Add("X-GitHub-Api-Version", "2022-11-28")
 
 	// Send request
-	client := &http.Client{}
+	client := &http.Client{Timeout: 1 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request: %w", err)

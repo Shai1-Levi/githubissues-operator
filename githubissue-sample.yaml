@@ -6,4 +6,4 @@ metadata:
 spec:
   title: "Fix Bug #12345678"
   description: "This issue tracks fixing a critical bug in the application."
-  repo: "https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues"
+  repo: "https://api.github.com/repos/Shai1-Levi/githubissues-operator"
