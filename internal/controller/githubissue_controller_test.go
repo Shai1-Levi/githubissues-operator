@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"os"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -28,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	trainingv1alpha1 "Shai1-Levi/githubissues-operator.git/api/v1alpha1"
+	// ghiConroller "Shai1-Levi/githubissues-operator.git/internal/controller"
 )
 
 var _ = Describe("GithubIssue Controller", func() {
@@ -46,13 +48,15 @@ var _ = Describe("GithubIssue Controller", func() {
 			By("creating the custom resource for the Kind GithubIssue")
 			err := k8sClient.Get(ctx, typeNamespacedName, githubissue)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &trainingv1alpha1.GithubIssue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
-					},
-					// TODO(user): Specify other spec details if needed.
-				}
+				// resource := &trainingv1alpha1.GithubIssue{
+				// 	ObjectMeta: metav1.ObjectMeta{
+				// 		Name:      resourceName,
+				// 		Namespace: "default",
+				// 	},
+				// 	// TODO(user): Specify other spec details if needed.
+				// }
+				resource := getTestCR(resourceName, "https://github.com/Shai1-Levi/githubissues-operator", 
+				"Test issue from test framework", "Test body from test framework")
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
 		})
@@ -81,4 +85,70 @@ var _ = Describe("GithubIssue Controller", func() {
 			// Example: If you expect a certain status condition after reconciliation, verify it here.
 		})
 	})
+
+	Context("Functionality test", func() {
+		const resourceName = "test-resource"
+		accessToken := os.Getenv("SECRET_Token") // Read the environment variable
+		var cr *trainingv1alpha1.GithubIssue
+		var controllerReconciler *GithubIssueReconciler
+
+		Context("Testing create", func() {
+			BeforeEach(func() {
+	
+
+				controllerReconciler = &GithubIssueReconciler{
+					Client: k8sClient,
+					Scheme: k8sClient.Scheme(),
+				}
+
+				cr = getTestCR(resourceName, "https://github.com/Shai1-Levi/githubissues-operator", 
+				"Test issue from test framework", "Test body from test framework")
+			})
+			When("CR was initalized", func() {
+				It("should be create a GitHub issue if not exists", func() {
+					annotationValue, err := controllerReconciler.createGithubIssue(cr.Spec.Title, cr.Spec.Description, cr.Spec.Repo, accessToken)
+					Expect(annotationValue).NotTo(BeZero())
+					Expect(err).NotTo(HaveOccurred())
+				})
+			})
+
+			When("CR was updated", func() {
+				It("should be update the GitHub issue if exists", func() {
+					needUpdate, err := controllerReconciler.updateGitHubIssue(cr.Spec.Title, cr.Spec.Description, cr.Spec.Repo, "-50", accessToken)
+					Expect(needUpdate).To(BeFalse())
+					Expect(err).To(HaveOccurred())
+				})
+			})
+
+			When("CR was deleted", func() {
+				It("should be delete the GitHub issue if exists", func() {
+					err := controllerReconciler.closeGithubIssueFromCR(cr, accessToken)
+					Expect(err).To(HaveOccurred())
+				})
+			})
+
+			When("CR failed to create the GitHub issue", func() {
+				It("should not create a GitHub issue and return error", func(){
+					annotationValue, err := controllerReconciler.createGithubIssue(cr.Spec.Title, cr.Spec.Description, "sdfgdfgfdgdfgfdgfdg", accessToken)
+					Expect(annotationValue).To(Equal(""))
+					Expect(err).To(HaveOccurred())
+				})
+			})
+		})
+	})
+
 })
+
+func getTestCR(crName, repo, title, description string) *trainingv1alpha1.GithubIssue {
+	return &trainingv1alpha1.GithubIssue{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: crName,
+		},
+		Spec: trainingv1alpha1.GithubIssueSpec{
+			Repo: repo,
+			Title: title,
+			Description: description,
+		},
+	}
+}
+
