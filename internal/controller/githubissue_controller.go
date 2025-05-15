@@ -370,7 +370,7 @@ func (r *GithubIssueReconciler) updateGitHubIssuefileds(title string, descriptio
 	req.Header.Add("X-GitHub-Api-Version", "2022-11-28")
 
 	// Create HTTP client and send request
-	client := &http.Client{}
+	client := &http.Client{Timeout: 1 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("error reading token: \n")
@@ -427,7 +427,7 @@ func (r *GithubIssueReconciler) closeGithubIssue(title string, description strin
 	req.Header.Add("X-GitHub-Api-Version", "2022-11-28")
 
 	// Create HTTP client and send request
-	client := &http.Client{}
+	client := &http.Client{Timeout: 1 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("error reading token: \n")
@@ -487,7 +487,7 @@ func (r *GithubIssueReconciler) createGithubIssue(title string, description stri
 	req.Header.Add("X-GitHub-Api-Version", "2022-11-28")
 
 	// Create HTTP client and send request
-	client := &http.Client{}
+	client := &http.Client{Timeout: 1 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("error reading token: \n")
@@ -572,7 +572,7 @@ func (r *GithubIssueReconciler) getStringAfterRepos(url string) (string, bool) {
 	// Ensure startIndex is within bounds (though with "repos/" it's unlikely to be an issue if found)
 	if startIndex >= len(url) {
 		// "repos/" is at the very end, so nothing comes after it
-		return "", true // Found "repos/", but nothing after
+		return "", false // Found but empty, treat as failure
 	}
 
 	return url[startIndex:], true
@@ -587,7 +587,6 @@ func (r *GithubIssueReconciler) fetchGitHubIssues(repo, accessToken string) ([]b
 	if !boolean || owner_repo == "" {
 		return nil, fmt.Errorf("failed to get owner_repo")
 	}
-	// url := "https://api.github.com/search/issues?q=repo:Shai1-Levi/githubissues-operator+type:issue+state:open"
 	url := "https://api.github.com/search/issues?q=repo:" + owner_repo + "+type:issue+state:open"
 
 	// Create a new HTTP request
@@ -602,7 +601,7 @@ func (r *GithubIssueReconciler) fetchGitHubIssues(repo, accessToken string) ([]b
 	req.Header.Add("X-GitHub-Api-Version", "2022-11-28")
 
 	// Send request
-	client := &http.Client{}
+	client := &http.Client{Timeout: 1 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request: %w", err)
@@ -637,7 +636,7 @@ func (r *GithubIssueReconciler) fetchGitHubIssuesbyIssueNumber(issueNumber, repo
 	req.Header.Add("X-GitHub-Api-Version", "2022-11-28")
 
 	// Send request
-	client := &http.Client{}
+	client := &http.Client{Timeout: 1 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request: %w", err)
