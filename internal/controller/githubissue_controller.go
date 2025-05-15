@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -91,7 +92,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return emptyResult, nil
 		}
 		log.Error(err, "Failed to get GithubIssue CR")
-		return emptyResult, err
+		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
 	if !ghi.ObjectMeta.DeletionTimestamp.IsZero() && !controllerutil.ContainsFinalizer(ghi, myFinalizerName) {
@@ -202,7 +203,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				}
 			}
 
-			return emptyResult, nil
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
 
 		}
 
