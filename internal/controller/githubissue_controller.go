@@ -21,7 +21,6 @@ import (
 	"slices"
 	"strconv"
 	"time"
-	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -94,9 +93,7 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// Return and don't requeue
 			logStr := fmt.Sprintf("GithubIssue CR was not found, CR Name %s CR Namespace %s", req.Name, req.Namespace)
 			log.Info(logStr)
-			r.syncCRwithGitHub(ctx, accessToken)
-			fmt.Printf("SHAIIIIII")
-			return ctrl.Result{RequeueAfter: time.Minute}, nil
+			return emptyResult, nil
 		}
 		log.Error(err, "Failed to get GithubIssue CR")
 		return emptyResult, err
@@ -134,21 +131,8 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	fmt.Printf("Title %s Description %s Repo %s \n", title, description, repo)
 
-	// Fetch issues from GitHub
-	body, err := r.fetchGitHubIssues(ghi.Spec.Repo, accessToken)
-	if err != nil {
-		log.Info("Failed to fetch GitHub issues")
-		return emptyResult, nil
-	}
-
-	var gitHubIssues GitHubSearchResponse
-
-	// Parse the JSON
-	err = json.Unmarshal(body, &gitHubIssues)
-	if err != nil {
-		fmt.Print(err)
-		log.Info("Failed to parase response to JSon")
-	}
+	r.syncCRwithGitHub(ctx, repo, accessToken)
+	fmt.Printf("SHAIIIIUIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII")
 
 	// The object is being deleted
 	if !ghi.ObjectMeta.DeletionTimestamp.IsZero() && controllerutil.ContainsFinalizer(ghi, myFinalizerName) {
@@ -211,7 +195,6 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		}
 
-
 	} else {
 		// No anttotaion filed, hence CR is on creation step
 		log.Info("CR does not have the annotation", "key", annotationKey)
@@ -230,47 +213,43 @@ func (r *GithubIssueReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return emptyResult, nil
 	}
 
-	fmt.Printf("SHAIIII!!!!")
-
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 
 }
 
-func (r *GithubIssueReconciler) getCRserialNumberList(ctx context.Context, accessToken string) ([]string, error) {
-	// logger.Info("Attempting to list all MyCustomResource instances in the cluster/namespace...")
+func (r *GithubIssueReconciler) getCRserialNumberList(ctx context.Context) ([]string, error) {
+
+	fmt.Printf("getting the list of serial numbers")
 
 	allInstancesList := &trainingv1alpha1.GithubIssueList{} // IMPORTANT: Use your actual CRD List Go type
 
-	// Define list options.
-	// To list across all namespaces (if your controller is cluster-scoped and has permissions):
 	listOpts := []client.ListOption{}
-	// To list within a specific namespace (e.g., the namespace of the CR that triggered this reconcile,
-	// or if the controller is namespace-scoped):
-	// listOpts := []client.ListOption{client.InNamespace(req.Namespace)} // or instance.Namespace
 
 	var listIssueNumber []string
 
 	if err := r.List(ctx, allInstancesList, listOpts...); err != nil {
-		// logger.Error(err, "Failed to list MyCustomResources")
 		// Depending on the error, you might want to requeue or handle it differently
+		fmt.Printf("Failed to fetch GitHub issues")
 		return listIssueNumber, err
 	}
 
 	for _, cr := range allInstancesList.Items {
 		crAnnotations := cr.GetAnnotations()
-		issueNumer, exists := crAnnotations[annotationKey1]
+		issueNumer, exists := crAnnotations[annotationKey]
 		if exists {
 			listIssueNumber = append(listIssueNumber, issueNumer)
 		}
 	}
+	fmt.Printf("Done to fetch GitHub issues")
 	return listIssueNumber, nil
 
 }
 
-func (r *GithubIssueReconciler) syncCRwithGitHub(ctx context.Context, accessToken string) (bool, error) {
+func (r *GithubIssueReconciler) syncCRwithGitHub(ctx context.Context, repo string, accessToken string) (bool, error) {
 
+	fmt.Printf("syncCRwithGitHub")
 	// Fetch issues from GitHub
-	body, err := r.fetchGitHubIssues(accessToken)
+	body, err := r.fetchGitHubIssues(repo, accessToken)
 	if err != nil {
 		return false, fmt.Errorf("failed to fetch GitHub issues")
 	}
@@ -288,33 +267,42 @@ func (r *GithubIssueReconciler) syncCRwithGitHub(ctx context.Context, accessToke
 	fmt.Printf("\n body \n")
 	fmt.Print(gitHubIssues)
 
-	listIssueNumber, _ := r.getCRserialNumberList(ctx, accessToken)
+	listIssueNumber, _ := r.getCRserialNumberList(ctx)
 
 	var i int
+	var numberList []string
 
 	for i = 0; i < len(gitHubIssues.Items); i++ {
 		item := gitHubIssues.Items[i]
 		fmt.Printf("\n items: \n")
 		fmt.Print(item)
 		fmt.Printf("\nIssue %d:\n", i)
-		number := fmt.Sprintf(item["number"].(string))
-		numberList := []string{number}
-		title := fmt.Sprintf(item["title"].(string))
-		description := fmt.Sprintf(item["body"].(string))
-		repo := fmt.Sprintf(item["body"].(string))
+		number, ok := item["number"].(string)
+		if ok {
+			numberList = []string{number}
+		} else {
+			return false, fmt.Errorf("can't retrieve issue number")
+		}
+		title := item["title"].(string)
+		description := item["body"].(string)
 		if !slices.Equal(listIssueNumber, numberList) {
-			r.createGithubIssue(title, description, repo, accessToken)
+			r.createCR(title, description, repo, number, accessToken)
 		}
 	}
 
 	return true, nil
 }
 
+func (r *GithubIssueReconciler) createCR(title string, description string, repo string, issueNumber string, accessToken string) (bool, error) {
+	fmt.Printf("Creating CR")
+	fmt.Printf("title %s description %s repo %s issueNumber %s \n", title, description, repo, issueNumber)
+
+	return true, nil
+}
 func (r *GithubIssueReconciler) updateGitHubIssue(title string, description string, repo string, issueNumber string, accessToken string) (bool, error) {
 
 	fmt.Print(repo)
 
-	// url := fmt.Sprintf("https://api.github.com/repos/Shai1-Levi/githubissues-operator/issues/%s", issueNumber)
 	url := repo + "/" + issueNumber
 
 	ans, e := r.updateGitHubIssuefileds(title, description, url, accessToken)
